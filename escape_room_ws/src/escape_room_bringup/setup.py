@@ -1,5 +1,6 @@
 from setuptools import find_packages, setup
 import os
+import glob
 
 package_name = 'escape_room_bringup'
 
