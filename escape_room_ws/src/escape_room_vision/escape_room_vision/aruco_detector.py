@@ -132,10 +132,10 @@ class ArucoDetectorNode(Node):
             marker.pose.position.y = float(self.filtered_tvec[1])
             marker.pose.position.z = float(self.filtered_tvec[2])
 
-            marker.pose.rotation.x = float(self.filtered_q[0])
-            marker.pose.rotation.y = float(self.filtered_q[1])
-            marker.pose.rotation.z = float(self.filtered_q[2])
-            marker.pose.rotation.w = float(self.filtered_q[3])
+            marker.pose.orientation.x = float(self.filtered_q[0])
+            marker.pose.orientation.y = float(self.filtered_q[1])
+            marker.pose.orientation.z = float(self.filtered_q[2])
+            marker.pose.orientation.w = float(self.filtered_q[3])
             
             marker.scale.x = float(self.marker_length)
             marker.scale.y = float(self.marker_length)
