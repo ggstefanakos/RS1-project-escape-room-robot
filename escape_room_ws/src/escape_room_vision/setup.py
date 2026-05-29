@@ -24,6 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            # Όνομα_που_θα_τρέχουμε = όνομα_φακέλου.όνομα_αρχείου:main_συνάρτηση
+            'aruco_node = escape_room_vision.aruco_detector:main'
         ],
     },
 )
