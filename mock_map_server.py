@@ -4,6 +4,7 @@ from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid
 import cv2
 import numpy as np
+import os
 
 class MockMapServer(Node):
     def __init__(self):
@@ -11,7 +12,7 @@ class MockMapServer(Node):
         self.publisher_ = self.create_publisher(OccupancyGrid, '/map', 10)
         
         # Βάλε το σωστό μονοπάτι για τον χάρτη σου
-        self.map_path = "src/GIA_ANAFORA/myagv_navigation2/map/map.pgm"
+        self.map_path = os.path.join(os.path.dirname(__file__),'GIA_ANAFORA/myagv_navigation2/map/map.pgm')
         self.grid_msg = self.load_map()
         
         # Εκπέμπουμε τον χάρτη κάθε 2 δευτερόλεπτα για να τον δει σίγουρα ο A* και το RViz
