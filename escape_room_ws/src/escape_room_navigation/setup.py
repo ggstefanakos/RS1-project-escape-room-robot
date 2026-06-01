@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+            'planner_node = escape_room_navigation.global_planner:main'
         ],
     },
 )
