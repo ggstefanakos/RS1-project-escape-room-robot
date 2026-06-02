@@ -76,7 +76,7 @@ class ArucoDetectorNode(Node):
 
     def image_callback(self, msg):
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "mono8")
         except Exception as e:
             self.get_logger().error(f"Image conversion failed: {e}")
             return
