@@ -76,13 +76,23 @@ class ArucoDetectorNode(Node):
 
     def image_callback(self, msg):
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "mono8")
+            # 1. Διαβάζουμε το κανονικό έγχρωμο frame
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
         except Exception as e:
             self.get_logger().error(f"Image conversion failed: {e}")
             return
 
-        # Εκτέλεση ανίχνευσης με τον παλιό τρόπο της OpenCV
-        corners, ids, rejected = cv2.aruco.detectMarkers(cv_image, self.aruco_dict, parameters=self.aruco_params)
+        # --- ΟΙ ΑΛΛΑΓΕΣ ΣΟΥ ΞΕΚΙΝΑΝΕ ΕΔΩ ---
+
+        # 2. Ρίχνουμε την ανάλυση στο 640x480 (μειώνει τα pixel κατά 70% αν είχες 1080p)
+        cv_image = cv2.resize(cv_image, (640, 480), interpolation=cv2.INTER_LINEAR)
+
+        # 3. Φτιάχνουμε ένα ασπρόμαυρο αντίγραφο (διώχνουμε τα 3 κανάλια RGB, κρατάμε 1)
+        gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
+
+        # 4. Ταΐζουμε το ΑΣΠΡΟΜΑΥΡΟ frame στον ArUco detector (όχι το cv_image)
+        corners, ids, rejected = cv2.aruco.detectMarkers(gray_image, self.aruco_dict, parameters=self.aruco_params)
+
 
         if ids is not None:
             # Υπολογισμός 3D θέσης (Pose) του ArUco
