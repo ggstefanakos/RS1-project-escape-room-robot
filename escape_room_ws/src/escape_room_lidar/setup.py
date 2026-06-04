@@ -24,6 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
+        'lidar_converter = escape_room_vision.lidar_to_grid:main'
         ],
     },
 )
