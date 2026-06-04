@@ -13,7 +13,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         # Το αλλάζουμε για να βλέπει το νέο αρχείο
-        (os.path.join('share', package_name, 'launch'), ['launch/laptop_brain.launch.py'])  
+        (os.path.join('share', package_name, 'launch'), ['launch/robot_brain.launch.py'])  
     ],
     install_requires=['setuptools'],
     zip_safe=True,

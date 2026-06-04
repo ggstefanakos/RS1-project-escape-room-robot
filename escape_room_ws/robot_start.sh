@@ -9,6 +9,7 @@ source /opt/ros/noetic/setup.bash;
 roscore &
 sleep 5;
 echo 'Εκκίνηση Lidar...';
+source /home/er/Desktop/Projects/myagv_ros/devel/setup.bash
 roslaunch ydlidar_ros_driver X2.launch;
 exec bash"
 
