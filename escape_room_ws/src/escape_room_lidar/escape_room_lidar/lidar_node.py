@@ -39,8 +39,9 @@ class LidarToCartesianNode(Node):
             current_angle += msg.angle_increment
 
         header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = msg.frame_id
+        # Κρατάμε τον ακριβή χρόνο και το frame_id που μας έστειλε το Lidar
+        header.stamp = msg.header.stamp
+        header.frame_id = msg.header.frame_id
 
         pc2_msg = point_cloud2.create_cloud_xyz32(header, points)
         self.publisher.publish(pc2_msg)
