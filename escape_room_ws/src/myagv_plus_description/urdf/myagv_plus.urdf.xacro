@@ -13,7 +13,7 @@
   <xacro:property name="wheel_radius" value="0.04"/>
 
   <!-- INCLUDE ROBOT MACRO -->
-  <xacro:include filename="$(find myagv_plus_description)/urdf/common/gazebo.urdf.xacro" ns="gazebo" />
+  <!-- <xacro:include filename="$(find myagv_plus_description)/urdf/common/gazebo.urdf.xacro" ns="gazebo" /> -->
   <xacro:include filename="$(find myagv_plus_description)/urdf/common/ros2_control.urdf.xacro" ns="ros2_control" />
   <xacro:include filename="$(find myagv_plus_description)/urdf/robot/base.urdf.xacro" ns="base" />
   <xacro:include filename="$(find myagv_plus_description)/urdf/robot/wheel.urdf.xacro" ns="wheel" />
@@ -32,11 +32,11 @@
     <xacro:ros2_control.rosbot_system namespace="${namespace}" />
   </xacro:unless>
 
-  <!-- GAZEBO PLUGINS -->
+  <!-- GAZEBO PLUGINS
   <xacro:if value="${use_sim}">
     <xacro:ros2_control.gz_rosbot_system namespace="${namespace}" />
     <xacro:gazebo.controller config_file="${controller_config}" namespace="${namespace}" />
     <xacro:gazebo.imu reference_frame="imu_link" namespace="${namespace}" />
-  </xacro:if>
+  </xacro:if> -->
 
 </robot>
