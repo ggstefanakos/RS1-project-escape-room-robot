@@ -13,6 +13,16 @@ source /home/er/Desktop/Projects/myagv_ros/devel/setup.bash
 roslaunch ydlidar_ros_driver X2.launch;
 exec bash"
 
+gnome-terminal --tab --title="1.1 Odometry (ROS1)" -- bash -c "
+echo 'Φόρτωση ROS1...';
+source /opt/ros/noetic/setup.bash;
+roscore &
+sleep 5;
+echo 'Εκκίνηση Odom...';
+source /home/er/Desktop/Projects/myagv_ros/devel/setup.bash
+roslaunch myagv_odometry myagv_active.launch
+exec bash"
+
 # Tab 2: Η Γέφυρα (ros1_bridge)
 gnome-terminal --tab --title="2. Bridge (ROS1+ROS2)" -- bash -c "
 echo 'Περιμένω το Lidar να ξεκινήσει...';
