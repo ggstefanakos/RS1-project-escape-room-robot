@@ -71,6 +71,12 @@ def generate_launch_description():
         name='aruco_detector',
         output='screen'
         ),
+         Node(
+        package='escape_room_navigation',
+        executable='ekf_map',
+        name='ekf_lidar_slam_node',
+        output='screen'
+        ),
 
         Node(
         package='rviz2',
