@@ -1,46 +1,53 @@
+import os
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
 def generate_launch_description():
     
-    # 1. Το TF Tree (Σπονδυλική Στήλη): Ενώνει τον χάρτη με το Lidar
-    tf_node = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='link_map_to_laser',
-        arguments=['0', '0', '0.15', '0', '0', '0', 'map', 'laser_frame'],
-        output='screen'
+    # --- 1. ΦΟΡΤΩΣΗ ΤΟΥ URDF ---
+    # Βρίσκουμε πού έχει εγκατασταθεί το πακέτο myagv_description
+    myagv_desc_dir = get_package_share_directory('myagv_description')
+    urdf_path = os.path.join(myagv_desc_dir, 'urdf', 'myAGV.urdf')
+
+    # Διαβάζουμε το περιεχόμενο του αρχείου URDF ως κείμενο
+    with open(urdf_path, 'r') as urdf_file:
+        robot_description_content = urdf_file.read()
+
+    # Ο κεντρικός κόμβος που μετατρέπει το URDF σε TF Tree και 3D Μοντέλο
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{'robot_description': robot_description_content}]
     )
 
-    # 2. Ο Μετατροπέας (Διαβάζει /scan από το bridge, βγάζει PointCloud στο /lidar_points)
+    # --- 2. ΤΑ ΥΠΟΛΟΙΠΑ NODES ΜΑΣ ---
     lidar_converter_node = Node(
-        package='escape_room_lidar',
+        package='escape_room_vision',
         executable='lidar_converter',
         name='lidar_to_cartesian_node',
         output='screen'
     )
 
-    # # 3. Το Vision Node (Το αφήνουμε έτοιμο για όταν βάλετε κάμερα)
-    # vision_node = Node(
-    #     package='escape_room_vision',
-    #     executable='aruco_node',
-    #     name='aruco_detector',
-    #     output='screen'
-    # )
+    vision_node = Node(
+        package='escape_room_vision',
+        executable='aruco_node',
+        name='aruco_detector',
+        output='screen'
+    )
 
-    # 4. RViz2 (Για να μην το ανοίγεις με το χέρι)
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
         name='rviz2',
         output='screen'
-        # Αν αποθηκεύσεις τις ρυθμίσεις του rviz σε ένα αρχείο .rviz, μπορείς να το φορτώνεις αυτόματα εδώ:
-        # arguments=['-d', '/διαδρομή/προς/το/αρχείο/config.rviz']
     )
 
     return LaunchDescription([
-        tf_node,
+        robot_state_publisher_node,
         lidar_converter_node,
-        # vision_node,
+        vision_node,
         rviz_node
     ])

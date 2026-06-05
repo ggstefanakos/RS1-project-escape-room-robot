@@ -1,9 +1,0 @@
-topics:
-  -
-    topic: /odom
-    type: nav_msgs/msg/Odometry 
-    queue_size: 1
-  -
-    topic: /scan
-    type: sensor_msgs/msg/LaserScan
-    queue_size: 1
