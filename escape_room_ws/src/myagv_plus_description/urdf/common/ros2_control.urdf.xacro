@@ -42,12 +42,8 @@
         <param name="can_id">0x04</param>
         <param name="mst_id">0x14</param>
       </joint>
-<<<<<<< HEAD
-    </ros2_control>
-=======
 
     </xacro:ros2_control>
->>>>>>> bd7bacabfc46130f9089ae9688878a4b09bcc9c2
   </xacro:macro>
 
   <xacro:macro name="esp32_system" params="name:='esp32_system' namespace:=''">
