@@ -1,123 +1,30 @@
-<?xml version="1.0" encoding="utf-8"?>
-<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+ <?xml version="1.0" encoding="utf-8"?>
+<robot name="myAGV plus" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
-  <xacro:macro name="rosbot_system" params="name:='rosbot_system' namespace:=''" >
-    <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
+  <xacro:arg name="controller_config" default="" />
+  <xacro:arg name="namespace" default=""/>
+  <xacro:arg name="use_sim" default="false" />
+  
+  <xacro:property name="controller_config" value="$(arg controller_config)" />
+  <xacro:property name="namespace" value="$(arg namespace)" />
+  <xacro:property name="use_sim" value="$(arg use_sim)" />
 
-    <ros2_control name="${ns}${name}" type="system">
-      <hardware>
-        <plugin>myagvplus_hardware_interfaces/MyAGVPlusInterface</plugin>
-        <param name="port">/dev/myagvplus_controller</param>
-        <param name="baudrate">921600</param>
-      </hardware>
+  <xacro:property name="wheel_radius" value="0.04"/>
 
-      <joint name="fl_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-        <param name="can_id">0x02</param>
-        <param name="mst_id">0x12</param>
-      </joint>
+  <xacro:include filename="$(find myagv_plus_description)/urdf/common/ros2_control.urdf.xacro" ns="hw_interfaces" />
+  
+  <xacro:include filename="$(find myagv_plus_description)/urdf/robot/base.urdf.xacro" ns="base" />
+  <xacro:include filename="$(find myagv_plus_description)/urdf/robot/wheel.urdf.xacro" ns="wheel" />
 
-      <joint name="fr_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-        <param name="can_id">0x03</param>
-        <param name="mst_id">0x13</param>
-      </joint>
+  <xacro:base.base wheel_radius="${wheel_radius}" />
 
-      <joint name="rl_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-        <param name="can_id">0x01</param>
-        <param name="mst_id">0x11</param>
-      </joint>
-      
-      <joint name="rr_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-        <param name="can_id">0x04</param>
-        <param name="mst_id">0x14</param>
-      </joint>
-    </ros2_control>
-  </xacro:macro>
+  <xacro:wheel.wheel wheel_radius="${wheel_radius}" side="fl" />
+  <xacro:wheel.wheel wheel_radius="${wheel_radius}" side="rl" />
+  <xacro:wheel.wheel wheel_radius="${wheel_radius}" side="fr" />
+  <xacro:wheel.wheel wheel_radius="${wheel_radius}" side="rr" />
 
-  <xacro:macro name="esp32_system" params="name:='esp32_system' namespace:=''">
-    <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
+  <xacro:unless value="${use_sim}">
+    <xacro:hw_interfaces.rosbot_system namespace="${namespace}" />
+  </xacro:unless>
 
-    <ros2_control name="${ns}${name}" type="system">
-      <hardware>
-        <plugin>myagvplus_hardware_interfaces/Esp32Interface</plugin>
-        <param name="port">/dev/myagvplus_esp32</param>
-        <param name="baudrate">115200</param>
-      </hardware>
-
-      <sensor name="${ns}imu">
-        <state_interface name="orientation.x"/>
-        <state_interface name="orientation.y"/>
-        <state_interface name="orientation.z"/>
-        <state_interface name="orientation.w"/>
-        <state_interface name="angular_velocity.x"/>
-        <state_interface name="angular_velocity.y"/>
-        <state_interface name="angular_velocity.z"/>
-        <state_interface name="linear_acceleration.x"/>
-        <state_interface name="linear_acceleration.y"/>
-        <state_interface name="linear_acceleration.z"/>
-      </sensor>
-
-      <joint name="${ns}rgb_led">
-        <command_interface name="r"/>
-        <command_interface name="g"/>
-        <command_interface name="b"/>
-      </joint>
-    </ros2_control>
-  </xacro:macro>
-
-  <xacro:macro name="gz_rosbot_system" params="name:='rosbot_system' namespace:=''" >
-    <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
-
-    <ros2_control name="${ns}${name}" type="system">
-      <hardware>
-        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
-      </hardware>
-
-      <joint name="fl_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-      </joint>
-      <joint name="fr_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-      </joint>
-      <joint name="rl_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-      </joint>
-      <joint name="rr_wheel_joint">
-        <command_interface name="velocity" />
-        <state_interface name="position" />
-        <state_interface name="velocity" />
-      </joint>
-
-      <sensor name="${ns}imu">
-        <state_interface name="orientation.x" />
-        <state_interface name="orientation.y" />
-        <state_interface name="orientation.z" />
-        <state_interface name="orientation.w" />
-        <state_interface name="angular_velocity.x" />
-        <state_interface name="angular_velocity.y" />
-        <state_interface name="angular_velocity.z" />
-        <state_interface name="linear_acceleration.x" />
-        <state_interface name="linear_acceleration.y" />
-        <state_interface name="linear_acceleration.z" />
-      </sensor>
-    </ros2_control>
-  </xacro:macro>
-
-</robot>
+  </robot>
