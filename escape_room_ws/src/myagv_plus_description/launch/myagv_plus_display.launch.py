@@ -1,13 +1,13 @@
 import os
-from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node,PushRosNamespace
 from launch.conditions import IfCondition
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command,LaunchConfiguration,PythonExpression
+from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
-    
+
     use_rviz = LaunchConfiguration('use_rviz', default='true')
 
     rviz_config_dir = os.path.join(
@@ -25,7 +25,6 @@ def generate_launch_description():
         'xacro ',
         urdf_file,
     ])
-
 
     return LaunchDescription([
 
@@ -48,27 +47,6 @@ def generate_launch_description():
             name='rviz2',
             arguments=['-d', rviz_config_dir],
             condition=IfCondition(use_rviz),
-            output='screen'
-        ),
-        Node(
-        package='escape_room_lidar',
-        executable='lidar_converter',
-        name='lidar_to_cartesian_node',
-        output='screen'
-        ),
-
-        Node(
-        package='escape_room_vision',
-        executable='aruco_node',
-        name='aruco_detector',
-        output='screen'
-        ),
-
-        Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen'
-        )
+            output='screen')
 
     ])
