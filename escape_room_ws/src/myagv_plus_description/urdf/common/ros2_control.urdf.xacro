@@ -4,7 +4,7 @@
   <xacro:macro name="rosbot_system" params="name:='rosbot_system' namespace:=''" >
     <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
 
-    <ros2_control name="${ns}${name}" type="system">
+    <xacro:ros2_control name="${ns}${name}" type="system">
       <hardware>
         <plugin>myagvplus_hardware_interfaces/MyAGVPlusInterface</plugin>
         <param name="port">/dev/myagvplus_controller</param>
@@ -47,13 +47,13 @@
         <param name="mst_id">0x14</param>
       </joint>
 
-    </ros2_control>
+    </xacro:ros2_control>
   </xacro:macro>
 
   <xacro:macro name="esp32_system" params="name:='esp32_system' namespace:=''">
     <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
 
-    <ros2_control name="${ns}${name}" type="system">
+    <xacro:ros2_control name="${ns}${name}" type="system">
       <hardware>
         <plugin>myagvplus_hardware_interfaces/Esp32Interface</plugin>
         <param name="port">/dev/myagvplus_esp32</param>
@@ -81,13 +81,13 @@
         <command_interface name="b"/>
       </joint>
 
-    </ros2_control>
+    </xacro:ros2_control>
   </xacro:macro>
 
   <xacro:macro name="gz_rosbot_system" params="name:='rosbot_system' namespace:=''" >
     <xacro:property name="ns" value="${namespace + '/' if namespace != '' else ''}" />
 
-    <ros2_control name="${ns}${name}" type="system">
+    <xacro:ros2_control name="${ns}${name}" type="system">
       <hardware>
         <plugin>gz_ros2_control/GazeboSimSystem</plugin>
       </hardware>
@@ -125,7 +125,7 @@
         <state_interface name="linear_acceleration.y" />
         <state_interface name="linear_acceleration.z" />
       </sensor>
-    </ros2_control>
+    </xacro:ros2_control>
   </xacro:macro>
 
 </robot>
