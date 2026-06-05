@@ -37,6 +37,14 @@ def generate_launch_description():
         ),
 
         Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='laser_name_adapter',
+        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'odom'],
+        output='screen'
+        ),
+
+        Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             name='robot_state_publisher',
