@@ -25,7 +25,7 @@ def generate_launch_description():
 
     # --- 2. ΤΑ ΥΠΟΛΟΙΠΑ NODES ΜΑΣ ---
     lidar_converter_node = Node(
-        package='escape_room_vision',
+        package='escape_room_lidar',
         executable='lidar_converter',
         name='lidar_to_cartesian_node',
         output='screen'
