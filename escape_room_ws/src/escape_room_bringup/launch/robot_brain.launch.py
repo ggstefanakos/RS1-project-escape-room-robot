@@ -5,6 +5,7 @@ from launch_ros.actions import Node,PushRosNamespace
 from launch.conditions import IfCondition
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import Command,LaunchConfiguration,PythonExpression
+import math
 
 def generate_launch_description():
     
@@ -32,7 +33,7 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         name='laser_name_adapter',
-        arguments=['0', '0', '0', '0', '0', '0', 'laser_link', 'laser_frame'],
+        arguments=['0', '0', '0', f'{math.pi}', '0', '0', 'laser_link', 'laser_frame'],
         output='screen'
         ),
 
