@@ -32,8 +32,8 @@ class EkfLidarSlam(Node):
 
         # --- 2. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ (Grid) ---
         self.resolution = 0.05  # 5cm ανά pixel
-        self.width_m = 20.0
-        self.height_m = 20.0
+        self.width_m = 6.0
+        self.height_m = 6.0
         self.width_px = int(self.width_m / self.resolution)
         self.height_px = int(self.height_m / self.resolution)
         
@@ -119,7 +119,7 @@ class EkfLidarSlam(Node):
         ryaw_pred = self.X[2, 0]
 
         # 1. Δημιουργούμε μια "εικόνα" (Local Template) από το τρέχον Lidar
-        local_size = 100 # 100x100 pixels = 5x5 μέτρα
+        local_size = 50 # 100x100 pixels = 5x5 μέτρα
         template = np.full((local_size, local_size), 127, dtype=np.uint8)
         
         current_angle = msg.angle_min
