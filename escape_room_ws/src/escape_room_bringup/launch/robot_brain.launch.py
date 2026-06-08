@@ -39,8 +39,8 @@ def generate_launch_description():
         Node(
         package='tf2_ros',
         executable='static_transform_publisher',
-        name='laser_name_adapter',
-        arguments=['0', '0', '0', '0', '0', '0', 'base_footprint', 'odom'],
+        name='odom_2_base_foot',
+        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_footprint'],
         output='screen'
         ),
 
