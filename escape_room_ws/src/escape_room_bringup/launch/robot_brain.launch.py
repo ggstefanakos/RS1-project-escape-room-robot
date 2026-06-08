@@ -40,7 +40,7 @@ def generate_launch_description():
         package='tf2_ros',
         executable='static_transform_publisher',
         name='laser_name_adapter',
-        arguments=['0', '0', '0', '0', '0', '0', 'base_link', 'odom'],
+        arguments=['0', '0', '0', '0', '0', '0', 'base_footprint', 'odom'],
         output='screen'
         ),
 
