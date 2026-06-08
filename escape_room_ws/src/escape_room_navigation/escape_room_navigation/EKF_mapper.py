@@ -114,7 +114,7 @@ class EkfLidarSlam(Node):
         for r in msg.ranges:
             if msg.range_min < r < msg.range_max and not math.isinf(r):
                 # Υπολογίζουμε τη γωνία σε σχέση με το Ρομπότ
-                global_angle = ryaw_pred + current_angle
+                global_angle = ryaw_pred + current_angle + math.pi
                 
                 # Τοπικό X, Y της κουκκίδας (με κέντρο το 50,50 του template)
                 lx = r * math.cos(global_angle)
@@ -185,7 +185,7 @@ class EkfLidarSlam(Node):
 
         for r in msg.ranges:
             if msg.range_min < r < msg.range_max and not math.isinf(r):
-                global_angle = ryaw_f + current_angle
+                global_angle = ryaw_f + current_angle + math.pi
                 hx = rx_f + r * math.cos(global_angle)
                 hy = ry_f + r * math.sin(global_angle)
                 hx_px, hy_px = self.world_to_grid(hx, hy)

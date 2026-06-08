@@ -30,19 +30,19 @@ def generate_launch_description():
 
     return LaunchDescription([
         Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='laser_name_adapter',
-        arguments=['0', '0', '0', f'{math.pi}', '0', '0', 'laser_link', 'laser_frame'],
-        output='screen'
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='laser_name_adapter',
+            arguments=['0', '0', '0', '0', '0', '0', 'laser_link', 'laser_frame'],
+            output='screen'
         ),
 
         Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='odom_2_base_foot',
-        arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_footprint'],
-        output='screen'
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='odom_2_base_foot',
+            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_footprint'],
+            output='screen'
         ),
 
         Node(
@@ -68,30 +68,23 @@ def generate_launch_description():
             output='screen'
         ),
         Node(
-        package='escape_room_lidar',
-        executable='lidar_converter',
-        name='lidar_to_cartesian_node',
-        output='screen'
+            package='escape_room_lidar',
+            executable='lidar_converter',
+            name='lidar_to_cartesian_node',
+            output='screen'
         ),
 
         Node(
-        package='escape_room_vision',
-        executable='aruco_node',
-        name='aruco_detector',
-        output='screen'
+            package='escape_room_vision',
+            executable='aruco_node',
+            name='aruco_detector',
+            output='screen'
         ),
+
          Node(
-        package='escape_room_navigation',
-        executable='ekf_map',
-        name='ekf_lidar_slam_node',
-        output='screen'
-        ),
-
-        Node(
-        package='rviz2',
-        executable='rviz2',
-        name='rviz2',
-        output='screen'
+            package='escape_room_navigation',
+            executable='ekf_map',
+            name='ekf_lidar_slam_node',
+            output='screen'
         )
-
     ])
