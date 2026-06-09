@@ -116,6 +116,19 @@ class EkfLidarSlam(Node):
         ])
 
         self.P = F @ self.P @ F.T + self.Q
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = 'odom'
+        
+        # ΠΡΟΣΟΧΗ ΕΔΩ: Πρέπει να είναι ΑΚΡΙΒΩΣ όπως το λέει το URDF
+        t.child_frame_id = 'base_footprint' 
+        
+        t.transform.translation.x = msg.pose.pose.position.x
+        t.transform.translation.y = msg.pose.pose.position.y
+        t.transform.translation.z = msg.pose.pose.position.z
+        t.transform.rotation = msg.pose.pose.orientation
+        
+        self.tf_broadcaster.sendTransform(t)
 
     # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
     def scan_callback(self, msg):
