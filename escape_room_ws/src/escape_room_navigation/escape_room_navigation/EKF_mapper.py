@@ -99,7 +99,7 @@ class EkfLidarSlam(Node):
         return response
 
     # ====== ΒΗΜΑ 1: EKF PREDICT (Από την Οδομετρία) ======
-     def odom_callback(self, msg):
+    def odom_callback(self, msg):
         # 1. Διαβάζουμε τα τέλεια, ενσωματωμένα δεδομένα του MyAGV
         curr_odom_x = msg.pose.pose.position.x
         curr_odom_y = msg.pose.pose.position.y
