@@ -99,44 +99,60 @@ class EkfLidarSlam(Node):
         return response
 
     # ====== ΒΗΜΑ 1: EKF PREDICT (Από την Οδομετρία) ======
-    def odom_callback(self, msg):
+     def odom_callback(self, msg):
+        # 1. Διαβάζουμε τα τέλεια, ενσωματωμένα δεδομένα του MyAGV
+        curr_odom_x = msg.pose.pose.position.x
+        curr_odom_y = msg.pose.pose.position.y
+        curr_imu_yaw = self.euler_from_quaternion(msg.pose.pose.orientation)
+
+        # 2. Αρχικοποίηση στην πρώτη εκτέλεση
+        if not hasattr(self, 'first_odom_received'):
+            self.odom_x = curr_odom_x
+            self.odom_y = curr_odom_y
+            self.odom_yaw = curr_imu_yaw
+            self.first_odom_received = True
+            self.last_time = time.time()
+            return
+
+        # 3. Βρίσκουμε ΠΟΣΟ ακριβώς κουνήθηκε το ρομπότ από το προηγούμενο μήνυμα
+        dx_global = curr_odom_x - self.odom_x
+        dy_global = curr_odom_y - self.odom_y
+        
+        # Μετατροπή της κίνησης στο τοπικό σύστημα του ρομπότ (Matrix Rotation)
+        dx_local = dx_global * math.cos(-self.odom_yaw) - dy_global * math.sin(-self.odom_yaw)
+        dy_local = dx_global * math.sin(-self.odom_yaw) + dy_global * math.cos(-self.odom_yaw)
+
+        # 4. Εφαρμογή της ακριβούς κίνησης στο δικό μας SLAM State
+        theta = self.X[2, 0]
+        self.X[0, 0] += dx_local * math.cos(theta) - dy_local * math.sin(theta)
+        self.X[1, 0] += dx_local * math.sin(theta) + dy_local * math.cos(theta)
+        self.X[2, 0] = curr_imu_yaw  # Εμπιστευόμαστε 100% το IMU
+
+        # 5. Υπολογισμός Covariance P (Κρατάμε μια τυπική αβεβαιότητα)
         current_time = time.time()
         dt = current_time - self.last_time
         self.last_time = current_time
-
-        self.v = msg.twist.twist.linear.x
-        self.vy = msg.twist.twist.linear.y
-        self.omega = msg.twist.twist.angular.z
         
-        imu_yaw = self.euler_from_quaternion(msg.pose.pose.orientation)
+        v = msg.twist.twist.linear.x
+        vy = msg.twist.twist.linear.y
         
-        # Αποθηκεύουμε την ωμή θέση για το TF
-        self.odom_x = msg.pose.pose.position.x
-        self.odom_y = msg.pose.pose.position.y
-        self.odom_yaw = imu_yaw
-
-        theta = self.X[2, 0]
-
-        # --- EKF PREDICT STEP (Omnidirectional Kinematics) ---
-        
-        # 1. Υπολογισμός νέας θέσης λαμβάνοντας υπόψη το πλάγιο γλίστρημα
-        self.X[0, 0] += (self.v * math.cos(theta) - self.vy * math.sin(theta)) * dt
-        self.X[1, 0] += (self.v * math.sin(theta) + self.vy * math.cos(theta)) * dt
-        self.X[2, 0] = imu_yaw  
-
-        # 2. Ιακωβιανή F (Μερικές Παράγωγοι ως προς θ)
-        dx_dtheta = (-self.v * math.sin(theta) - self.vy * math.cos(theta)) * dt
-        dy_dtheta = ( self.v * math.cos(theta) - self.vy * math.sin(theta)) * dt
+        dx_dtheta = (-v * math.sin(theta) - vy * math.cos(theta)) * dt
+        dy_dtheta = ( v * math.cos(theta) - vy * math.sin(theta)) * dt
 
         F = np.array([
             [1.0, 0.0, dx_dtheta],
             [0.0, 1.0, dy_dtheta],
             [0.0, 0.0, 1.0]
         ])
-
+        
         self.P = F @ self.P @ F.T + self.Q
 
-        # ΕΚΠΟΜΠΗ ODOM -> BASE_FOOTPRINT
+        # 6. Ανανέωση μνήμης για τον επόμενο γύρο
+        self.odom_x = curr_odom_x
+        self.odom_y = curr_odom_y
+        self.odom_yaw = curr_imu_yaw
+
+        # 7. ΕΚΠΟΜΠΗ ΤΟΥ ΩΜΟΥ ODOM -> BASE_FOOTPRINT
         t_odom = TransformStamped()
         t_odom.header.stamp = self.get_clock().now().to_msg()
         t_odom.header.frame_id = 'odom'
