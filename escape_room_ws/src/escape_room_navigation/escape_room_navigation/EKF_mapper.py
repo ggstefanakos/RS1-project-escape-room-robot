@@ -28,6 +28,7 @@ class EkfLidarSlam(Node):
         
         self.last_time = time.time()
         self.v = 0.0
+        self.vy = 0.0
         self.omega = 0.0
 
         self.odom_x = 0.0
@@ -104,6 +105,7 @@ class EkfLidarSlam(Node):
         self.last_time = current_time
 
         self.v = msg.twist.twist.linear.x
+        self.vy = msg.twist.twist.linear.y
         self.omega = msg.twist.twist.angular.z
         
         imu_yaw = self.euler_from_quaternion(msg.pose.pose.orientation)
@@ -115,14 +117,20 @@ class EkfLidarSlam(Node):
 
         theta = self.X[2, 0]
 
-        # EKF Predict
-        self.X[0, 0] += self.v * math.cos(theta) * dt
-        self.X[1, 0] += self.v * math.sin(theta) * dt
+        # --- EKF PREDICT STEP (Omnidirectional Kinematics) ---
+        
+        # 1. Υπολογισμός νέας θέσης λαμβάνοντας υπόψη το πλάγιο γλίστρημα
+        self.X[0, 0] += (self.v * math.cos(theta) - self.vy * math.sin(theta)) * dt
+        self.X[1, 0] += (self.v * math.sin(theta) + self.vy * math.cos(theta)) * dt
         self.X[2, 0] = imu_yaw  
 
+        # 2. Ιακωβιανή F (Μερικές Παράγωγοι ως προς θ)
+        dx_dtheta = (-self.v * math.sin(theta) - self.vy * math.cos(theta)) * dt
+        dy_dtheta = ( self.v * math.cos(theta) - self.vy * math.sin(theta)) * dt
+
         F = np.array([
-            [1.0, 0.0, -self.v * math.sin(theta) * dt],
-            [0.0, 1.0,  self.v * math.cos(theta) * dt],
+            [1.0, 0.0, dx_dtheta],
+            [0.0, 1.0, dy_dtheta],
             [0.0, 0.0, 1.0]
         ])
 
