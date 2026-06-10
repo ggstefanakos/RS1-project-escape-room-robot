@@ -21,7 +21,7 @@ class EkfLidarSlam(Node):
         self.P = np.eye(3) * 0.1  # Αρχική αβεβαιότητα
         
         # Πόσο δεν εμπιστευόμαστε την οδομετρία (Process Noise)
-        self.Q = np.diag([0.05, 0.05, 0.01]) 
+        self.Q = np.diag([0.1, 0.1, 0.01]) 
         
         # Πόσο δεν εμπιστευόμαστε το OpenCV Scan Matching (Measurement Noise)
         self.R = np.diag([0.01, 0.01]) 
