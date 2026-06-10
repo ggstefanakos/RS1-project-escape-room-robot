@@ -199,7 +199,7 @@ class EkfLidarSlam(Node):
                     K = self.P @ H.T @ np.linalg.inv(S) 
                     
                     self.X = self.X + K @ y_res       
-                    self.P = (np.eye(3) - K @ H) @ self.P 
+                    #self.P = (np.eye(3) - K @ H) @ self.P 
 
         # ====== ΒΗΜΑ 4: ΧΑΡΤΟΓΡΑΦΗΣΗ ======
         rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
