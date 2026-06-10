@@ -206,7 +206,7 @@ class EkfLidarSlam(Node):
                 res = cv2.matchTemplate(global_roi, template, cv2.TM_CCOEFF_NORMED)
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
                 
-                if max_val > 0.3:  
+                if max_val > 0.7:  
                     match_px = x_min + max_loc[0] + (local_size // 2)
                     match_py = y_min + max_loc[1] + (local_size // 2)
                     
@@ -223,7 +223,7 @@ class EkfLidarSlam(Node):
                     K = self.P @ H.T @ np.linalg.inv(S) 
                     
                     self.X = self.X + K @ y_res       
-                    #self.P = (np.eye(3) - K @ H) @ self.P 
+                    self.P = (np.eye(3) - K @ H) @ self.P 
 
         # ====== ΒΗΜΑ 4: ΧΑΡΤΟΓΡΑΦΗΣΗ ======
         rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
