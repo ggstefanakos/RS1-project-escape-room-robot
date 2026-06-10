@@ -36,7 +36,7 @@ class EkfLidarSlam(Node):
         self.odom_yaw = 0.0
 
         # --- 2. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ (Grid) ---
-        self.resolution = 0.05  # 5cm ανά pixel
+        self.resolution = 0.01  # 5cm ανά pixel
         self.width_m = 10.
         self.height_m = 10.
         self.width_px = int(self.width_m / self.resolution)
