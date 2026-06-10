@@ -30,6 +30,10 @@ class EkfLidarSlam(Node):
         self.v = 0.0
         self.omega = 0.0
 
+        self.odom_x = 0.0
+        self.odom_y = 0.0
+        self.odom_yaw = 0.0
+
         # --- 2. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ (Grid) ---
         self.resolution = 0.05  # 5cm ανά pixel
         self.width_m = 6.0
@@ -103,8 +107,15 @@ class EkfLidarSlam(Node):
         self.omega = msg.twist.twist.angular.z
         
         imu_yaw = self.euler_from_quaternion(msg.pose.pose.orientation)
+        
+        # Αποθηκεύουμε την ωμή θέση για το TF
+        self.odom_x = msg.pose.pose.position.x
+        self.odom_y = msg.pose.pose.position.y
+        self.odom_yaw = imu_yaw
+
         theta = self.X[2, 0]
 
+        # EKF Predict
         self.X[0, 0] += self.v * math.cos(theta) * dt
         self.X[1, 0] += self.v * math.sin(theta) * dt
         self.X[2, 0] = imu_yaw  
@@ -116,20 +127,17 @@ class EkfLidarSlam(Node):
         ])
 
         self.P = F @ self.P @ F.T + self.Q
-        t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'odom'
-        
-        # ΠΡΟΣΟΧΗ ΕΔΩ: Πρέπει να είναι ΑΚΡΙΒΩΣ όπως το λέει το URDF
-        t.child_frame_id = 'base_footprint' 
-        
-        t.transform.translation.x = msg.pose.pose.position.x
-        t.transform.translation.y = msg.pose.pose.position.y
-        t.transform.translation.z = msg.pose.pose.position.z
-        t.transform.rotation = msg.pose.pose.orientation
-        
-        self.tf_broadcaster.sendTransform(t)
 
+        # ΕΚΠΟΜΠΗ ODOM -> BASE_FOOTPRINT
+        t_odom = TransformStamped()
+        t_odom.header.stamp = self.get_clock().now().to_msg()
+        t_odom.header.frame_id = 'odom'
+        t_odom.child_frame_id = 'base_footprint'
+        t_odom.transform.translation.x = self.odom_x
+        t_odom.transform.translation.y = self.odom_y
+        t_odom.transform.translation.z = msg.pose.pose.position.z
+        t_odom.transform.rotation = msg.pose.pose.orientation
+        self.tf_broadcaster.sendTransform(t_odom)
     # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
     def scan_callback(self, msg):
         rx_pred = self.X[0, 0]
@@ -220,14 +228,36 @@ class EkfLidarSlam(Node):
 
         self.broadcast_tf()
 
+    def quaternion_from_euler(self, yaw):
+        # Βοηθητική συνάρτηση (αν δεν την έχεις ήδη)
+        q = np.zeros(4)
+        q[0] = 0.0; q[1] = 0.0; q[2] = math.sin(yaw/2.0); q[3] = math.cos(yaw/2.0)
+        return q
+
     def broadcast_tf(self):
+        # 1. Βρίσκουμε τη διαφορά γωνίας (Τέλεια - Ωμή)
+        yaw_diff = self.X[2, 0] - self.odom_yaw
+        
+        # 2. Βρίσκουμε τη διαφορά στα X, Y (περιστρέφοντας την οδομετρία για να ευθυγραμμιστεί)
+        x_diff = self.X[0, 0] - (self.odom_x * math.cos(yaw_diff) - self.odom_y * math.sin(yaw_diff))
+        y_diff = self.X[1, 0] - (self.odom_x * math.sin(yaw_diff) + self.odom_y * math.cos(yaw_diff))
+
+        # 3. Στέλνουμε το σφάλμα ως MAP -> ODOM
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'map'
         t.child_frame_id = 'odom'
-        t.transform.translation.x = 0.0
-        t.transform.translation.y = 0.0
-        t.transform.rotation.w = 1.0
+        
+        t.transform.translation.x = x_diff
+        t.transform.translation.y = y_diff
+        t.transform.translation.z = 0.0
+        
+        q = self.quaternion_from_euler(yaw_diff)
+        t.transform.rotation.x = q[0]
+        t.transform.rotation.y = q[1]
+        t.transform.rotation.z = q[2]
+        t.transform.rotation.w = q[3]
+        
         self.tf_broadcaster.sendTransform(t)
 
     def publish_map(self):
