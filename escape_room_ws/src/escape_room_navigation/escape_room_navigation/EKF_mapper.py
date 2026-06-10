@@ -164,7 +164,7 @@ class EkfLidarSlam(Node):
         self.tf_broadcaster.sendTransform(t_odom)
     
      # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
-      def scan_callback(self, msg):
+    def scan_callback(self, msg):
         rx_pred = self.X[0, 0]
         ry_pred = self.X[1, 0]
         ryaw_pred = self.X[2, 0]
