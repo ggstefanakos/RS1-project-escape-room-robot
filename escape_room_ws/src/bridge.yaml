@@ -7,3 +7,7 @@ topics:
     topic: /scan
     type: sensor_msgs/msg/LaserScan 
     queue_size: 1
+  -
+    topic: /cmd_vel
+    type: geometry_msgs/msg/Twist 
+    queue_size: 1
