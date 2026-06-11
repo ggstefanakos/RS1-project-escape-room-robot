@@ -4,7 +4,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
 from geometry_msgs.msg import TransformStamped
-from std_srvs.srv import Empty # ΠΡΟΣΘΗΚΗ: Το standard Empty Service του ROS2
+from std_srvs.srv import Empty 
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from tf2_ros.transform_broadcaster import TransformBroadcaster
 import numpy as np
@@ -16,14 +16,10 @@ class EkfLidarSlam(Node):
     def __init__(self):
         super().__init__('ekf_lidar_slam_node')
 
-        # --- 1. EKF STATE VECTORS & MATRICES ---
-        self.X = np.zeros((3, 1)) # State: [x, y, theta]
-        self.P = np.eye(3) * 0.1  # Αρχική αβεβαιότητα
+        self.X = np.zeros((3, 1)) 
+        self.P = np.eye(3) * 0.1  
         
-        # Πόσο δεν εμπιστευόμαστε την οδομετρία (Process Noise)
         self.Q = np.diag([1e-3, 1e-3, 1e-5]) 
-        
-        # Πόσο δεν εμπιστευόμαστε το OpenCV Scan Matching (Measurement Noise)
         self.R = np.diag([1e-4, 1e-4]) 
         
         self.last_time = time.time()
@@ -35,43 +31,44 @@ class EkfLidarSlam(Node):
         self.odom_y = 0.0
         self.odom_yaw = 0.0
 
-        self.scan_count = 0
-
-        # --- 2. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ (Grid) ---
-        self.resolution = 0.05  # 5cm ανά pixel
-        self.width_m = 10.
-        self.height_m = 10.
+        self.resolution = 0.05  
+        self.width_m = 10.0
+        self.height_m = 10.0
         self.width_px = int(self.width_m / self.resolution)
         self.height_px = int(self.height_m / self.resolution)
         
-        # 127 = Άγνωστο, 255 = Εμπόδιο, 0 = Ελεύθερο
-        self.grid = np.full((self.height_px, self.width_px), 127, dtype=np.uint8)
         self.origin_x = -self.width_m / 2.0
         self.origin_y = -self.height_m / 2.0
 
-        # --- 3. ROS INFRASTRUCTURE ---
+        # === ΝΕΟ: ΠΙΝΑΚΑΣ ΠΙΘΑΝΟΤΗΤΩΝ (0.0 έως 100.0) ===
+        # 50.0 σημαίνει "Άγνωστο"
+        self.prob_map = np.full((self.height_px, self.width_px), 50.0, dtype=np.float32)
+
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
         
         map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', map_qos)
-        
-        # ΠΡΟΣΘΗΚΗ: Δημιουργία του Service Server για το Reset
         self.reset_service = self.create_service(Empty, 'reset_slam', self.reset_slam_callback)
-        
         self.timer = self.create_timer(1.0, self.publish_map)
 
-        self.get_logger().info("🔥 EKF-Lidar SLAM Started (Odom + OpenCV Scan Matching) with Reset Service Available!")
+        self.get_logger().info("🔥 Probabilistic EKF-Lidar SLAM Started!")
 
     def euler_from_quaternion(self, q):
         t3 = +2.0 * (q.w * q.z + q.x * q.y)
         t4 = +1.0 - 2.0 * (q.y * q.y + q.z * q.z)
         return math.atan2(t3, t4)
 
+    def quaternion_from_euler(self, yaw):
+        q = np.zeros(4)
+        q[0] = 0.0; q[1] = 0.0; q[2] = math.sin(yaw/2.0); q[3] = math.cos(yaw/2.0)
+        return q
+
+    # === ΝΕΟ: Χρήση του round() για αποφυγή του 1-pixel jitter ===
     def world_to_grid(self, x, y):
-        px = int((x - self.origin_x) / self.resolution)
-        py = int((y - self.origin_y) / self.resolution)
+        px = int(round((x - self.origin_x) / self.resolution))
+        py = int(round((y - self.origin_y) / self.resolution))
         return px, py
 
     def grid_to_world(self, px, py):
@@ -79,36 +76,25 @@ class EkfLidarSlam(Node):
         y = (py * self.resolution) + self.origin_y
         return x, y
 
-    # ====== ΠΡΟΣΘΗΚΗ: Ο SERVICE SERVER ΚΩΔΙΚΑΣ ======
     def reset_slam_callback(self, request, response):
-        """Εκτελεί ακαριαίο reset της θέσης του EKF και καθαρισμό του χάρτη"""
         self.get_logger().warn("🔄 Reset Command Received! Re-initializing SLAM...")
-        
-        # 1. Μηδενισμός Κατάστασης EKF
         self.X = np.zeros((3, 1))
         self.P = np.eye(3) * 0.1
         self.v = 0.0
         self.omega = 0.0
         self.last_time = time.time()
         
-        # 2. Ολικός Καθαρισμός Χάρτη (Όλα ξανά 127 / Άγνωστα)
-        self.grid.fill(127)
-        self.scan_count = 0
+        # Επαναφορά του χάρτη στο 50% (Άγνωστο)
+        self.prob_map.fill(50.0)
         
-        # 3. Αναγκαστικό άμεσο publish του άδειου χάρτη για να ενημερωθεί το RViz
         self.publish_map()
-        
-        self.get_logger().info("✅ SLAM successfully initialized to (0,0,0). Map cleared.")
         return response
 
-    # ====== ΒΗΜΑ 1: EKF PREDICT (Από την Οδομετρία) ======
     def odom_callback(self, msg):
-        # 1. Διαβάζουμε τα τέλεια, ενσωματωμένα δεδομένα του MyAGV
         curr_odom_x = msg.pose.pose.position.x
         curr_odom_y = msg.pose.pose.position.y
         curr_imu_yaw = self.euler_from_quaternion(msg.pose.pose.orientation)
 
-        # 2. Αρχικοποίηση στην πρώτη εκτέλεση
         if not hasattr(self, 'first_odom_received'):
             self.odom_x = curr_odom_x
             self.odom_y = curr_odom_y
@@ -117,21 +103,17 @@ class EkfLidarSlam(Node):
             self.last_time = time.time()
             return
 
-        # 3. Βρίσκουμε ΠΟΣΟ ακριβώς κουνήθηκε το ρομπότ από το προηγούμενο μήνυμα
         dx_global = curr_odom_x - self.odom_x
         dy_global = curr_odom_y - self.odom_y
         
-        # Μετατροπή της κίνησης στο τοπικό σύστημα του ρομπότ (Matrix Rotation)
         dx_local = dx_global * math.cos(-self.odom_yaw) - dy_global * math.sin(-self.odom_yaw)
         dy_local = dx_global * math.sin(-self.odom_yaw) + dy_global * math.cos(-self.odom_yaw)
 
-        # 4. Εφαρμογή της ακριβούς κίνησης στο δικό μας SLAM State
         theta = self.X[2, 0]
         self.X[0, 0] += dx_local * math.cos(theta) - dy_local * math.sin(theta)
         self.X[1, 0] += dx_local * math.sin(theta) + dy_local * math.cos(theta)
-        self.X[2, 0] = curr_imu_yaw  # Εμπιστευόμαστε 100% το IMU
+        self.X[2, 0] = curr_imu_yaw 
 
-        # 5. Υπολογισμός Covariance P (Κρατάμε μια τυπική αβεβαιότητα)
         current_time = time.time()
         dt = current_time - self.last_time
         self.last_time = current_time
@@ -150,12 +132,10 @@ class EkfLidarSlam(Node):
         
         self.P = F @ self.P @ F.T + self.Q
 
-        # 6. Ανανέωση μνήμης για τον επόμενο γύρο
         self.odom_x = curr_odom_x
         self.odom_y = curr_odom_y
         self.odom_yaw = curr_imu_yaw
 
-        # 7. ΕΚΠΟΜΠΗ ΤΟΥ ΩΜΟΥ ODOM -> BASE_FOOTPRINT
         t_odom = TransformStamped()
         t_odom.header.stamp = self.get_clock().now().to_msg()
         t_odom.header.frame_id = 'odom'
@@ -165,10 +145,8 @@ class EkfLidarSlam(Node):
         t_odom.transform.translation.z = msg.pose.pose.position.z
         t_odom.transform.rotation = msg.pose.pose.orientation
         self.tf_broadcaster.sendTransform(t_odom)
-    # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
-    # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
+
     def scan_callback(self, msg):
-        self.scan_count += 1
         rx_pred = self.X[0, 0]
         ry_pred = self.X[1, 0]
         ryaw_pred = self.X[2, 0]
@@ -177,9 +155,7 @@ class EkfLidarSlam(Node):
         template = np.full((local_size, local_size), 127, dtype=np.uint8)
         
         current_angle = msg.angle_min
-        valid_points = 0
-        
-        match_successful = False  # <--- ΠΡΟΣΘΗΚΗ: Σημαία ελέγχου
+        hit_points_temp = []
 
         for r in msg.ranges:
             if msg.range_min < r < msg.range_max and not math.isinf(r):
@@ -192,9 +168,13 @@ class EkfLidarSlam(Node):
                 py = int(ly / self.resolution) + (local_size // 2)
                 
                 if 0 <= px < local_size and 0 <= py < local_size:
-                    template[py, px] = 255 
-                    valid_points += 1
+                    cv2.line(template, (local_size // 2, local_size // 2), (px, py), 0, 1)
+                    hit_points_temp.append((px, py))
             current_angle += msg.angle_increment
+
+        valid_points = len(hit_points_temp)
+        for px, py in hit_points_temp:
+            template[py, px] = 255
 
         if valid_points > 20:
             rx_px, ry_px = self.world_to_grid(rx_pred, ry_pred)
@@ -205,13 +185,17 @@ class EkfLidarSlam(Node):
             y_min = max(0, ry_px - search_radius)
             y_max = min(self.height_px, ry_px + search_radius)
             
-            global_roi = self.grid[y_min:y_max, x_min:x_max]
+            # === ΝΕΟ: Εξαγωγή του ROI από τον πίνακα πιθανοτήτων ===
+            global_roi_prob = self.prob_map[y_min:y_max, x_min:x_max]
+            global_roi = np.full(global_roi_prob.shape, 127, dtype=np.uint8)
+            global_roi[global_roi_prob < 40.0] = 0
+            global_roi[global_roi_prob > 60.0] = 255
 
             if global_roi.shape[0] >= template.shape[0] and global_roi.shape[1] >= template.shape[1]:
                 res = cv2.matchTemplate(global_roi, template, cv2.TM_CCOEFF_NORMED)
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
                 
-                if max_val > 0.6:  # Το κατεβάσαμε στο 0.6 για να δέχεται λίγο πιο εύκολα τις διορθώσεις
+                if max_val > 0.5:  
                     match_px = x_min + max_loc[0] + (local_size // 2)
                     match_py = y_min + max_loc[1] + (local_size // 2)
                     
@@ -229,52 +213,39 @@ class EkfLidarSlam(Node):
                     
                     self.X = self.X + K @ y_res       
                     self.P = (np.eye(3) - K @ H) @ self.P 
-                    
-                    match_successful = True  # <--- Το EKF δούλεψε τέλεια, σήκωσε τη σημαία!
 
-        # ====== ΒΗΜΑ 4: ΧΑΡΤΟΓΡΑΦΗΣΗ ======
-        # ΠΡΟΣΘΗΚΗ: Ο Πορτιέρης. Ζωγραφίζουμε ΜΟΝΟ αν κάναμε EKF Update Ή αν είμαστε στα πρώτα 30 scans (για να χτιστεί ο αρχικός χάρτης)
-        if match_successful or self.scan_count < 30:
-            rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
-            rx_f_px, ry_f_px = self.world_to_grid(rx_f, ry_f)
+        # === ΝΕΟ: PROBABILISTIC MAPPING ===
+        rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
+        rx_f_px, ry_f_px = self.world_to_grid(rx_f, ry_f)
 
-            rays_canvas = np.zeros_like(self.grid, dtype=np.uint8)
-            hit_points = []
-            current_angle = msg.angle_min
+        rays_canvas = np.zeros(self.prob_map.shape, dtype=np.uint8)
+        hit_canvas = np.zeros(self.prob_map.shape, dtype=np.uint8)
+        current_angle = msg.angle_min
 
-            for r in msg.ranges:
-                if msg.range_min < r < msg.range_max and not math.isinf(r):
-                    global_angle = ryaw_f + current_angle + math.pi
-                    hx = rx_f + r * math.cos(global_angle)
-                    hy = ry_f + r * math.sin(global_angle)
-                    hx_px, hy_px = self.world_to_grid(hx, hy)
-                    
-                    if 0 <= hx_px < self.width_px and 0 <= hy_px < self.height_px:
-                        cv2.line(rays_canvas, (rx_f_px, ry_f_px), (hx_px, hy_px), 255, 1)
-                        hit_points.append((hx_px, hy_px))
-                current_angle += msg.angle_increment
+        for r in msg.ranges:
+            if msg.range_min < r < msg.range_max and not math.isinf(r):
+                global_angle = ryaw_f + current_angle + math.pi
+                hx = rx_f + r * math.cos(global_angle)
+                hy = ry_f + r * math.sin(global_angle)
+                hx_px, hy_px = self.world_to_grid(hx, hy)
+                
+                if 0 <= hx_px < self.width_px and 0 <= hy_px < self.height_px:
+                    cv2.line(rays_canvas, (rx_f_px, ry_f_px), (hx_px, hy_px), 255, 1)
+                    hit_canvas[hy_px, hx_px] = 255
+            current_angle += msg.angle_increment
 
-            self.grid[rays_canvas == 255] = 0
-            for hx, hy in hit_points:
-                self.grid[hy, hx] = 255
+        # Η Μαγεία του Log-Odds: Τα ελεύθερα πεδία χάνουν 2%, τα εμπόδια κερδίζουν 10%
+        self.prob_map[rays_canvas == 255] -= 2.0
+        self.prob_map[hit_canvas == 255] += 10.0
+        np.clip(self.prob_map, 0.0, 100.0, out=self.prob_map)
 
         self.broadcast_tf()
 
-    def quaternion_from_euler(self, yaw):
-        # Βοηθητική συνάρτηση (αν δεν την έχεις ήδη)
-        q = np.zeros(4)
-        q[0] = 0.0; q[1] = 0.0; q[2] = math.sin(yaw/2.0); q[3] = math.cos(yaw/2.0)
-        return q
-
     def broadcast_tf(self):
-        # 1. Βρίσκουμε τη διαφορά γωνίας (Τέλεια - Ωμή)
         yaw_diff = self.X[2, 0] - self.odom_yaw
-        
-        # 2. Βρίσκουμε τη διαφορά στα X, Y (περιστρέφοντας την οδομετρία για να ευθυγραμμιστεί)
         x_diff = self.X[0, 0] - (self.odom_x * math.cos(yaw_diff) - self.odom_y * math.sin(yaw_diff))
         y_diff = self.X[1, 0] - (self.odom_x * math.sin(yaw_diff) + self.odom_y * math.cos(yaw_diff))
 
-        # 3. Στέλνουμε το σφάλμα ως MAP -> ODOM
         t = TransformStamped()
         t.header.stamp = self.get_clock().now().to_msg()
         t.header.frame_id = 'map'
@@ -302,10 +273,10 @@ class EkfLidarSlam(Node):
         msg.info.origin.position.x = self.origin_x
         msg.info.origin.position.y = self.origin_y
         
-        ros_grid = np.copy(self.grid).astype(np.int8)
-        ros_grid[self.grid == 0] = 0       
-        ros_grid[self.grid == 127] = -1    
-        ros_grid[self.grid == 255] = 100   
+        # Μετατροπή του Πίνακα Πιθανοτήτων σε format του ROS 2
+        ros_grid = np.full(self.prob_map.shape, -1, dtype=np.int8)
+        ros_grid[self.prob_map < 40.0] = 0    # Πιθανότητα κάτω από 40% = Ελεύθερο
+        ros_grid[self.prob_map > 60.0] = 100  # Πιθανότητα πάνω από 60% = Τοίχος
         
         msg.data = ros_grid.flatten().tolist()
         self.map_pub.publish(msg)
