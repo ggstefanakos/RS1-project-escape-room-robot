@@ -19,8 +19,8 @@ class EkfLidarSlam(Node):
         self.X = np.zeros((3, 1)) 
         self.P = np.eye(3) * 0.1  
         
-        self.Q = np.diag([1e-3, 1e-3, 1e-5]) 
-        self.R = np.diag([1e-4, 1e-4]) 
+        self.Q = np.diag([1e-3, 1e-3, 1e-4]) 
+        self.R = np.diag([0.05, 0.05]) 
         
         self.last_time = time.time()
         self.v = 0.0
@@ -235,8 +235,8 @@ class EkfLidarSlam(Node):
             current_angle += msg.angle_increment
 
         # Η Μαγεία του Log-Odds: Τα ελεύθερα πεδία χάνουν 2%, τα εμπόδια κερδίζουν 10%
-        self.prob_map[rays_canvas == 255] -= 5.0
-        self.prob_map[hit_canvas == 255] += 5.0
+        self.prob_map[rays_canvas == 255] -= 3.0
+        self.prob_map[hit_canvas == 255] += 7.0
         np.clip(self.prob_map, 0.0, 100.0, out=self.prob_map)
 
         self.broadcast_tf()
