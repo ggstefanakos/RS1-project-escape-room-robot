@@ -20,7 +20,7 @@ class EkfLidarSlam(Node):
         self.P = np.eye(3) * 0.1  
         
         self.Q = np.diag([1e-3, 1e-3, 1e-4]) 
-        self.R = np.diag([0.05, 0.05]) 
+        self.R = np.diag([1e-4, 1e-4]) 
         
         self.last_time = time.time()
         self.v = 0.0
