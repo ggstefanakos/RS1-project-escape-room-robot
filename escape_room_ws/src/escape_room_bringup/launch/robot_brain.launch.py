@@ -38,6 +38,20 @@ def generate_launch_description():
         ),
 
         Node(
+            package='escape_room_navigation',
+            executable='planner_node',
+            name='global_planner_node',
+            output='screen'
+        ),
+
+        Node(
+            package='escape_room_navigation',
+            executable='controller_node',
+            name='local_planner_node',
+            output='screen'
+        ),
+
+        Node(
             package='tf2_ros',
             executable='static_transform_publisher',
             name='odom_2_base_foot',
