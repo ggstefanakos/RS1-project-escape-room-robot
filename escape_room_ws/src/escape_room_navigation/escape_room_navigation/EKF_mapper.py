@@ -35,8 +35,10 @@ class EkfLidarSlam(Node):
         self.odom_y = 0.0
         self.odom_yaw = 0.0
 
+        self.scan_count = 0
+
         # --- 2. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ (Grid) ---
-        self.resolution = 0.01  # 5cm ανά pixel
+        self.resolution = 0.05  # 5cm ανά pixel
         self.width_m = 10.
         self.height_m = 10.
         self.width_px = int(self.width_m / self.resolution)
@@ -163,21 +165,23 @@ class EkfLidarSlam(Node):
         t_odom.transform.rotation = msg.pose.pose.orientation
         self.tf_broadcaster.sendTransform(t_odom)
     # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
+    # ====== ΒΗΜΑ 2 & 3: MEASUREMENT & UPDATE (Από το Lidar) ======
     def scan_callback(self, msg):
+        self.scan_count += 1
         rx_pred = self.X[0, 0]
         ry_pred = self.X[1, 0]
         ryaw_pred = self.X[2, 0]
 
-        # 1. Δημιουργούμε μια "εικόνα" (Local Template) από το τρέχον Lidar
-        local_size = 100 # 100x100 pixels = 5x5 μέτρα
+        local_size = 100 
         template = np.full((local_size, local_size), 127, dtype=np.uint8)
         
         current_angle = msg.angle_min
         valid_points = 0
+        
+        match_successful = False  # <--- ΠΡΟΣΘΗΚΗ: Σημαία ελέγχου
 
         for r in msg.ranges:
             if msg.range_min < r < msg.range_max and not math.isinf(r):
-                # ΔΙΟΡΘΩΣΗ: Προσθήκη math.pi για το hardware offset του Lidar
                 global_angle = ryaw_pred + current_angle + math.pi
                 
                 lx = r * math.cos(global_angle)
@@ -206,7 +210,7 @@ class EkfLidarSlam(Node):
                 res = cv2.matchTemplate(global_roi, template, cv2.TM_CCOEFF_NORMED)
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
                 
-                if max_val > 0.7:  
+                if max_val > 0.6:  # Το κατεβάσαμε στο 0.6 για να δέχεται λίγο πιο εύκολα τις διορθώσεις
                     match_px = x_min + max_loc[0] + (local_size // 2)
                     match_py = y_min + max_loc[1] + (local_size // 2)
                     
@@ -224,31 +228,34 @@ class EkfLidarSlam(Node):
                     
                     self.X = self.X + K @ y_res       
                     self.P = (np.eye(3) - K @ H) @ self.P 
+                    
+                    match_successful = True  # <--- Το EKF δούλεψε τέλεια, σήκωσε τη σημαία!
 
         # ====== ΒΗΜΑ 4: ΧΑΡΤΟΓΡΑΦΗΣΗ ======
-        rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
-        rx_f_px, ry_f_px = self.world_to_grid(rx_f, ry_f)
+        # ΠΡΟΣΘΗΚΗ: Ο Πορτιέρης. Ζωγραφίζουμε ΜΟΝΟ αν κάναμε EKF Update Ή αν είμαστε στα πρώτα 30 scans (για να χτιστεί ο αρχικός χάρτης)
+        if match_successful or self.scan_count < 30:
+            rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
+            rx_f_px, ry_f_px = self.world_to_grid(rx_f, ry_f)
 
-        rays_canvas = np.zeros_like(self.grid, dtype=np.uint8)
-        hit_points = []
-        current_angle = msg.angle_min
+            rays_canvas = np.zeros_like(self.grid, dtype=np.uint8)
+            hit_points = []
+            current_angle = msg.angle_min
 
-        for r in msg.ranges:
-            if msg.range_min < r < msg.range_max and not math.isinf(r):
-                # ΔΙΟΡΘΩΣΗ: Προσθήκη math.pi και εδώ
-                global_angle = ryaw_f + current_angle + math.pi
-                hx = rx_f + r * math.cos(global_angle)
-                hy = ry_f + r * math.sin(global_angle)
-                hx_px, hy_px = self.world_to_grid(hx, hy)
-                
-                if 0 <= hx_px < self.width_px and 0 <= hy_px < self.height_px:
-                    cv2.line(rays_canvas, (rx_f_px, ry_f_px), (hx_px, hy_px), 255, 1)
-                    hit_points.append((hx_px, hy_px))
-            current_angle += msg.angle_increment
+            for r in msg.ranges:
+                if msg.range_min < r < msg.range_max and not math.isinf(r):
+                    global_angle = ryaw_f + current_angle + math.pi
+                    hx = rx_f + r * math.cos(global_angle)
+                    hy = ry_f + r * math.sin(global_angle)
+                    hx_px, hy_px = self.world_to_grid(hx, hy)
+                    
+                    if 0 <= hx_px < self.width_px and 0 <= hy_px < self.height_px:
+                        cv2.line(rays_canvas, (rx_f_px, ry_f_px), (hx_px, hy_px), 255, 1)
+                        hit_points.append((hx_px, hy_px))
+                current_angle += msg.angle_increment
 
-        self.grid[rays_canvas == 255] = 0
-        for hx, hy in hit_points:
-            self.grid[hy, hx] = 255
+            self.grid[rays_canvas == 255] = 0
+            for hx, hy in hit_points:
+                self.grid[hy, hx] = 255
 
         self.broadcast_tf()
 
