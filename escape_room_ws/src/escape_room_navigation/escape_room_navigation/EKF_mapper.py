@@ -93,6 +93,7 @@ class EkfLidarSlam(Node):
         
         # 2. Ολικός Καθαρισμός Χάρτη (Όλα ξανά 127 / Άγνωστα)
         self.grid.fill(127)
+        self.scan_count = 0
         
         # 3. Αναγκαστικό άμεσο publish του άδειου χάρτη για να ενημερωθεί το RViz
         self.publish_map()
