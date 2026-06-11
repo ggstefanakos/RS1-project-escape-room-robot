@@ -236,7 +236,7 @@ class EkfLidarSlam(Node):
 
         # Η Μαγεία του Log-Odds: Τα ελεύθερα πεδία χάνουν 2%, τα εμπόδια κερδίζουν 10%
         self.prob_map[rays_canvas == 255] -= 3.0
-        self.prob_map[hit_canvas == 255] += 5.0
+        self.prob_map[hit_canvas == 255] += 7.0
         np.clip(self.prob_map, 0.0, 100.0, out=self.prob_map)
 
         self.broadcast_tf()
