@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'mission_control_node = escape_room_autonomy.mission_control:main'
+            'mission_control_node = escape_room_autonomy.mission_control:main',
+            'mock_robot = escape_room_autonomy.mock_robot:main'
         ],
     },
 )
