@@ -114,7 +114,10 @@ class EkfLidarSlam(Node):
         self.X[1, 0] += dx_local * math.sin(theta) + dy_local * math.cos(theta)
         self.X[2, 0] = curr_imu_yaw 
 
-        current_time = time.time()
+        # Εξαγωγή του ακριβούς χρόνου του μηνύματος σε δευτερόλεπτα
+        sec = msg.header.stamp.sec
+        nanosec = msg.header.stamp.nanosec
+        current_time = sec + nanosec * 1e-9
         dt = current_time - self.last_time
         self.last_time = current_time
         
