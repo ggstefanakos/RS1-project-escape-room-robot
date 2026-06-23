@@ -167,8 +167,8 @@ class EkfLidarSlam(Node):
                 lx = r * math.cos(global_angle)
                 ly = r * math.sin(global_angle)
                 
-                px = int(lx / self.resolution) + (local_size // 2)
-                py = int(ly / self.resolution) + (local_size // 2)
+                px = int(round(lx / self.resolution)) + (local_size // 2)
+                py = int(round(ly / self.resolution)) + (local_size // 2)
                 
                 if 0 <= px < local_size and 0 <= py < local_size:
                     cv2.line(template, (local_size // 2, local_size // 2), (px, py), 0, 1)
