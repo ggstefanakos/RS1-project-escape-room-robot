@@ -22,9 +22,9 @@ from std_msgs.msg import Header
 # ==========================================
 # Το format είναι: { Door_ArUco_ID : Required_Key_ArUco_ID }
 KEY_DOOR_MATCHES = {
-    10: 1,  # Η πόρτα 10 ανοίγει με το κλειδί 1
-    11: 2,  # Η πόρτα 11 ανοίγει με το κλειδί 2
-    12: 3   # Η πόρτα 12 ανοίγει με το κλειδί 3
+   0 : 1,  # Η πόρτα 10 ανοίγει με το κλειδί 1
+    2: 4,  # Η πόρτα 11 ανοίγει με το κλειδί 2
+    5: 6   # Η πόρτα 12 ανοίγει με το κλειδί 3
 }
 
 # ==========================================
@@ -193,6 +193,9 @@ class MissionControlNode(Node):
     def publish_dynamic_obstacles(self):
         """ Ζωγραφίζει τις κλειδωμένες πόρτες στο RViz και στον χάρτη του A* """
         marker_array = MarkerArray()
+        delete_all_marker = Marker()
+        delete_all_marker.action = Marker.DELETEALL 
+        marker_array.markers.append(delete_all_marker)
         points = []
         marker_id = 0
         

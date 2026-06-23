@@ -9,6 +9,7 @@ from tf2_ros import TransformBroadcaster
 import cv2
 import numpy as np
 from scipy.spatial.transform import Rotation as R
+from geometry_msgs.msg import TransformStamped, Point
 
 class ArucoDetectorNode(Node):
     def __init__(self):
@@ -23,9 +24,14 @@ class ArucoDetectorNode(Node):
             self.image_callback,
             10)
             
-        self.marker_publisher = self.create_publisher(
-            Marker,
-            '/marker',
+        # self.marker_publisher = self.create_publisher(
+        #     Marker,
+        #     '/marker',
+        #     10)
+        # ΝΕΟΣ Publisher για το Mission Control
+        self.mission_publisher = self.create_publisher(
+            Point,
+            '/vision/detected_aruco',
             10)
             
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -129,34 +135,42 @@ class ArucoDetectorNode(Node):
 
             self.tf_broadcaster.sendTransform(t)
 
-            # --- Δημιουργία και Εκπομπή Marker για το RViz2 ---
-            marker = Marker()
-            marker.header.stamp = t.header.stamp
-            marker.header.frame_id = "camera_link"
-            marker.ns = "aruco_board"
-            marker.id = int(ids[0][0])
-            marker.type = Marker.CUBE
-            marker.action = Marker.ADD
+            # # --- Δημιουργία και Εκπομπή Marker για το RViz2 ---
+            # marker = Marker()
+            # marker.header.stamp = t.header.stamp
+            # marker.header.frame_id = "camera_link"
+            # marker.ns = "aruco_board"
+            # marker.id = int(ids[0][0])
+            # marker.type = Marker.CUBE
+            # marker.action = Marker.ADD
 
-            marker.pose.position.x = float(self.filtered_tvec[0])
-            marker.pose.position.y = float(self.filtered_tvec[1])
-            marker.pose.position.z = float(self.filtered_tvec[2])
+            # marker.pose.position.x = float(self.filtered_tvec[0])
+            # marker.pose.position.y = float(self.filtered_tvec[1])
+            # marker.pose.position.z = float(self.filtered_tvec[2])
 
-            marker.pose.orientation.x = float(self.filtered_q[0])
-            marker.pose.orientation.y = float(self.filtered_q[1])
-            marker.pose.orientation.z = float(self.filtered_q[2])
-            marker.pose.orientation.w = float(self.filtered_q[3])
+            # marker.pose.orientation.x = float(self.filtered_q[0])
+            # marker.pose.orientation.y = float(self.filtered_q[1])
+            # marker.pose.orientation.z = float(self.filtered_q[2])
+            # marker.pose.orientation.w = float(self.filtered_q[3])
             
-            marker.scale.x = float(self.marker_length)
-            marker.scale.y = float(self.marker_length)
-            marker.scale.z = 0.01  # Κάνουμε τον κύβο "πλακέ" σαν χαρτόνι
+            # marker.scale.x = float(self.marker_length)
+            # marker.scale.y = float(self.marker_length)
+            # marker.scale.z = 0.01  # Κάνουμε τον κύβο "πλακέ" σαν χαρτόνι
 
-            marker.color.r = 0.0
-            marker.color.g = 1.0  # Πράσινο χρώμα για να φαίνεται
-            marker.color.b = 0.0
-            marker.color.a = 0.8
+            # marker.color.r = 0.0
+            # marker.color.g = 1.0  # Πράσινο χρώμα για να φαίνεται
+            # marker.color.b = 0.0
+            # marker.color.a = 0.8
 
-            self.marker_publisher.publish(marker)
+            # self.marker_publisher.publish(marker)
+
+            mission_msg = Point()
+            # Στέλνουμε τις συντεταγμένες (x, z της κάμερας -> x, y του ρομπότ)
+            mission_msg.x = float(self.filtered_tvec[0]) 
+            mission_msg.y = float(self.filtered_tvec[2]) 
+            mission_msg.z = float(ids[0][0]) # Βάζουμε το ArUco ID στον άξονα z
+            
+            self.mission_publisher.publish(mission_msg)
 
             # Ζωγραφίζουμε πάνω στην εικόνα
             cv2.aruco.drawDetectedMarkers(cv_image, corners, ids)
