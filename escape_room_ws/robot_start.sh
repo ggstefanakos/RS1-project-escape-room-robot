@@ -31,7 +31,7 @@ echo 'Φόρτωση ROS1 & ROS2...';
 source /opt/ros/noetic/setup.bash;
 source /opt/ros/galactic/setup.bash;
 echo 'Εκκίνηση Γέφυρας...';
-rosparam load bridge.yaml;
+rosparam load ~/Desktop/Projects/TeamA06/RS1-project-escape-room-robot/escape-room-ws/bridge.yaml;
 ros2 run ros1_bridge parameter_bridge;
 exec bash"
 
