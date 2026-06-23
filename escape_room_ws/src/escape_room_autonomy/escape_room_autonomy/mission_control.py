@@ -118,27 +118,6 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.node.get_logger().info("Εξερεύνηση... (Αναμονή για δεδομένα στο /vision/detected_aruco)")
         return py_trees.common.Status.RUNNING
 
-    def update(self):
-        self.node.get_logger().info("Εξερεύνηση... (Ψάχνω για ArUco)")
-        
-        if random.random() < 0.1:
-            detected_id = random.choice(self.possible_arucos)
-            
-            # Αν είναι ΚΛΕΙΔΙ
-            if detected_id in KEY_DOOR_MATCHES.values():
-                if detected_id not in self.blackboard.keys_inventory:
-                    self.node.get_logger().info(f"!!! [VISION] ΒΡΗΚΑ ΚΛΕΙΔΙ (ArUco: {detected_id}) !!!")
-                    self.blackboard.keys_inventory.append(detected_id)
-            
-            # Αν είναι ΠΟΡΤΑ
-            elif detected_id in KEY_DOOR_MATCHES.keys():
-                if detected_id not in self.blackboard.discovered_doors:
-                    door_x = random.uniform(-1.5, 1.5)
-                    door_y = random.uniform(-1.5, 1.5)
-                    self.node.get_logger().info(f"!!! [VISION] ΕΝΤΟΠΙΣΑ ΠΟΡΤΑ (ArUco: {detected_id}) στα ({door_x:.1f}, {door_y:.1f}) !!!")
-                    self.blackboard.discovered_doors[detected_id] = (door_x, door_y)
-
-        return py_trees.common.Status.RUNNING
 
 # ==========================================
 # 2. ΧΤΙΣΙΜΟ ΔΕΝΤΡΟΥ & ΚΟΜΒΟΣ
