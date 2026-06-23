@@ -9,6 +9,7 @@ import py_trees
 import time
 import random
 import math
+from geometry_msgs.msg import PoseStamped, Point
 
 # --- ΝΕΑ IMPORTS ΓΙΑ ΤΗΝ ΟΠΤΙΚΟΠΟΙΗΣΗ (RVIZ & NAV2) ---
 from visualization_msgs.msg import Marker, MarkerArray
@@ -107,15 +108,15 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
         except TransformException:
             return py_trees.common.Status.RUNNING
 
+# ΑΛΛΑΓΗ 2: Αντικατέστησε ολόκληρη την ExploreMazeAction
 class ExploreMazeAction(py_trees.behaviour.Behaviour):
     def __init__(self, name, node):
         super(ExploreMazeAction, self).__init__(name)
         self.node = node
-        self.blackboard = py_trees.blackboard.Client(name=name)
-        self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
-        
-        self.possible_arucos = [1, 2, 3, 10, 11, 12]
+
+    def update(self):
+        self.node.get_logger().info("Εξερεύνηση... (Αναμονή για δεδομένα στο /vision/detected_aruco)")
+        return py_trees.common.Status.RUNNING
 
     def update(self):
         self.node.get_logger().info("Εξερεύνηση... (Ψάχνω για ArUco)")
@@ -159,7 +160,13 @@ def create_root(node):
 class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
-        
+        # ΑΛΛΑΓΗ 3: Μέσα στην def __init__(self):
+        self.aruco_sub = self.create_subscription(
+            Point, 
+            '/vision/detected_aruco', 
+            self.aruco_callback, 
+            10
+        )
         # --- PUBLISHERS ΓΙΑ RVIZ ΚΑΙ NAV2 ---
         self.marker_pub = self.create_publisher(MarkerArray, '/door_markers', 10)
         self.cloud_pub = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
@@ -181,6 +188,25 @@ class MissionControlNode(Node):
         self.tree.setup(timeout=15)
         
         self.timer = self.create_timer(1.0, self.tick_tree)
+
+    # ΑΛΛΑΓΗ 4: Νέα συνάρτηση μέσα στο MissionControlNode
+    def aruco_callback(self, msg):
+        """ Διαβάζει το topic της κάμερας και ενημερώνει τη μνήμη του δέντρου """
+        detected_id = int(msg.z) # Χρησιμοποιούμε το Z για το ArUco ID!
+        x = float(msg.x)
+        y = float(msg.y)
+        
+        # Αν το ID είναι ΚΛΕΙΔΙ
+        if detected_id in KEY_DOOR_MATCHES.values():
+            if detected_id not in self.blackboard.keys_inventory:
+                self.get_logger().info(f"📥 [VISION] Βρήκα ΚΛΕΙΔΙ: {detected_id}")
+                self.blackboard.keys_inventory.append(detected_id)
+                
+        # Αν το ID είναι ΠΟΡΤΑ
+        elif detected_id in KEY_DOOR_MATCHES.keys():
+            if detected_id not in self.blackboard.discovered_doors:
+                self.get_logger().info(f"📥 [VISION] Βρήκα ΠΟΡΤΑ: {detected_id} στα ({x}, {y})")
+                self.blackboard.discovered_doors[detected_id] = (x, y)
 
     def tick_tree(self):
         self.tree.tick()
