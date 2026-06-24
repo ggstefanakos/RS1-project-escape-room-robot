@@ -14,8 +14,10 @@ class AStarPlanner(Node):
         
         # 1. Subscribers: Τι ακούει ο αλγόριθμος
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
-        self.start_sub = self.create_subscription(PoseWithCovarianceStamped, '/initialpose', self.start_callback, 10)
         self.goal_sub = self.create_subscription(PoseStamped, '/goal_pose', self.goal_callback, 10)
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
         
         # 2. Publisher: Τι εκπέμπει ο αλγόριθμος (Το μονοπάτι)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
@@ -87,20 +89,33 @@ class AStarPlanner(Node):
         return math.hypot(a[0] - b[0], a[1] - b[1])
 
     def try_plan(self):
-        """Ελέγχει αν έχουμε όλα τα δεδομένα και τρέχει τον A*"""
-        if self.grid_map is None or self.start_pose is None or self.goal_pose is None:
+        if self.grid_map is None or self.goal_pose is None:
             return
 
-        start_idx = self.world_to_grid(self.start_pose.x, self.start_pose.y)
+        # ΠΡΟΣΘΗΚΗ: Δυναμική εύρεση του Start Pose μέσω του TF Tree
+        try:
+            # Ρωτάμε το σύστημα: Πού είναι το base_footprint σε σχέση με το map τώρα;
+            t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+            robot_x = t.transform.translation.x
+            robot_y = t.transform.translation.y
+        except TransformException as ex:
+            self.get_logger().error(f"Could not get current robot pose: {ex}")
+            return
+
+        start_idx = self.world_to_grid(robot_x, robot_y)
         goal_idx = self.world_to_grid(self.goal_pose.x, self.goal_pose.y)
 
         # Έλεγχος αν το start ή το goal είναι μέσα σε τοίχο
         if self.grid_map[start_idx[1], start_idx[0]] == 255:
-            self.get_logger().error("Start position is inside an obstacle!")
+            self.get_logger().error("Robot is currently inside an obstacle! Cannot plan.")
+            self.goal_pose = None
             return
         if self.grid_map[goal_idx[1], goal_idx[0]] == 255:
             self.get_logger().error("Goal position is inside an obstacle!")
+            self.goal_pose = None
             return
+
+        self.get_logger().info(f"Planning from ({robot_x:.2f}, {robot_y:.2f}) to ({self.goal_pose.x:.2f}, {self.goal_pose.y:.2f})...")
 
         # Εκτέλεση A*
         path_indices = self.a_star(start_idx, goal_idx)

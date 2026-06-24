@@ -38,8 +38,19 @@ rosparam load /home/er/Desktop/Projects/TeamA06/RS1-project-escape-room-robot/es
 ros2 run ros1_bridge parameter_bridge;
 exec bash"
 
-# Tab 3: Ο Εγκέφαλος ROS2 (TF, Converter, RViz)
-gnome-terminal --tab --title="3. Brain (ROS2)" -- bash -c "
+# Tab 3
+gnome-terminal --tab --title="3. camera" -- bash -c "
+echo 'Περιμένω το Lidar να ξεκινήσει...';
+sleep 20;
+echo 'Φόρτωση ROS2...';
+source /opt/ros/galactic/setup.bash;
+export ROS_DOMAIN_ID=92;
+echo 'Εκκίνηση Καμερας...';
+ros2 run v4l2_camera v4l2_camera_node --ros-args -p video_device:=/dev/video0
+exec bash"
+
+# Tab 4: Ο Εγκέφαλος ROS2 (TF, Converter, RViz)
+gnome-terminal --tab --title="4. Brain (ROS2)" -- bash -c "
 echo 'Περιμένω τη Γέφυρα...';
 sleep 25;
 echo 'Καθαρισμός περιβάλλοντος και φόρτωση ROS2...';
