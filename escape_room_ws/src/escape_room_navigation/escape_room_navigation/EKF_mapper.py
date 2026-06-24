@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import TransformStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped # <-- Προσθήκη PoseStamped
 from std_srvs.srv import Empty 
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from tf2_ros.transform_broadcaster import TransformBroadcaster
@@ -48,6 +48,9 @@ class EkfLidarSlam(Node):
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
         
+        # === ΝΕΟ: Publisher για την εκτιμώμενη θέση ===
+        self.pos_pub = self.create_publisher(PoseStamped, '/est_pos', 10)
+
         map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.map_pub = self.create_publisher(OccupancyGrid, '/map', map_qos)
         self.reset_service = self.create_service(Empty, 'reset_slam', self.reset_slam_callback)
@@ -75,20 +78,6 @@ class EkfLidarSlam(Node):
         x = (px * self.resolution) + self.origin_x
         y = (py * self.resolution) + self.origin_y
         return x, y
-
-    def reset_slam_callback(self, request, response):
-        self.get_logger().warn("🔄 Reset Command Received! Re-initializing SLAM...")
-        self.X = np.zeros((3, 1))
-        self.P = np.eye(3) * 0.1
-        self.v = 0.0
-        self.omega = 0.0
-        self.last_time = time.time()
-        
-        # Επαναφορά του χάρτη στο 50% (Άγνωστο)
-        self.prob_map.fill(50.0)
-        
-        self.publish_map()
-        return response
 
     def odom_callback(self, msg):
         curr_odom_x = msg.pose.pose.position.x
@@ -139,16 +128,8 @@ class EkfLidarSlam(Node):
         self.odom_y = curr_odom_y
         self.odom_yaw = curr_imu_yaw
 
-        t_odom = TransformStamped()
-        t_odom.header.stamp = self.get_clock().now().to_msg()
-        t_odom.header.frame_id = 'odom'
-        t_odom.child_frame_id = 'base_footprint'
-        t_odom.transform.translation.x = self.odom_x
-        t_odom.transform.translation.y = self.odom_y
-        t_odom.transform.translation.z = msg.pose.pose.position.z
-        t_odom.transform.rotation = msg.pose.pose.orientation
-        self.tf_broadcaster.sendTransform(t_odom)
-    
+        # === ΑΛΛΑΓΗ: Αφαιρέθηκε η εκπομπή του odom -> base_footprint από εδώ ===
+
     def reset_slam_callback(self, request, response):
         """Εκτελεί ακαριαίο reset της θέσης του EKF και καθαρισμό του χάρτη"""
         self.get_logger().warn("🔄 Reset Command Received! Re-initializing SLAM...")
@@ -160,13 +141,8 @@ class EkfLidarSlam(Node):
         self.omega = 0.0
         self.last_time = time.time()
         
-        # 2. Ολικός Καθαρισμός Χάρτη (Όλα ξανά 127 / Άγνωστα)
-        self.grid.fill(127)
-        
-        # 3. Αναγκαστικό άμεσο publish του άδειου χάρτη για να ενημερωθεί το RViz
+        self.prob_map.fill(50.0)
         self.publish_map()
-        
-        self.get_logger().info("✅ SLAM successfully initialized to (0,0,0). Map cleared.")
         return response
 
     def scan_callback(self, msg):
@@ -265,26 +241,39 @@ class EkfLidarSlam(Node):
         self.broadcast_tf()
 
     def broadcast_tf(self):
-        yaw_diff = self.X[2, 0] - self.odom_yaw
-        x_diff = self.X[0, 0] - (self.odom_x * math.cos(yaw_diff) - self.odom_y * math.sin(yaw_diff))
-        y_diff = self.X[1, 0] - (self.odom_x * math.sin(yaw_diff) + self.odom_y * math.cos(yaw_diff))
-
-        t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
-        t.header.frame_id = 'map'
-        t.child_frame_id = 'odom'
+        now = self.get_clock().now().to_msg()
         
-        t.transform.translation.x = x_diff
-        t.transform.translation.y = y_diff
+        # === ΑΛΛΑΓΗ 1: Εκπομπή Direct TF από 'map' σε 'base_footprint' ===
+        t = TransformStamped()
+        t.header.stamp = now
+        t.header.frame_id = 'map'
+        t.child_frame_id = 'base_footprint'
+        
+        t.transform.translation.x = self.X[0, 0]
+        t.transform.translation.y = self.X[1, 0]
         t.transform.translation.z = 0.0
         
-        q = self.quaternion_from_euler(yaw_diff)
+        q = self.quaternion_from_euler(self.X[2, 0])
         t.transform.rotation.x = q[0]
         t.transform.rotation.y = q[1]
         t.transform.rotation.z = q[2]
         t.transform.rotation.w = q[3]
         
         self.tf_broadcaster.sendTransform(t)
+
+        # === ΑΛΛΑΓΗ 2: Δημοσίευση της θέσης στο topic /est_pos ===
+        pose_msg = PoseStamped()
+        pose_msg.header.stamp = now
+        pose_msg.header.frame_id = 'map'
+        pose_msg.pose.position.x = self.X[0, 0]
+        pose_msg.pose.position.y = self.X[1, 0]
+        pose_msg.pose.position.z = 0.0
+        pose_msg.pose.orientation.x = q[0]
+        pose_msg.pose.orientation.y = q[1]
+        pose_msg.pose.orientation.z = q[2]
+        pose_msg.pose.orientation.w = q[3]
+        
+        self.pos_pub.publish(pose_msg)
 
     def publish_map(self):
         msg = OccupancyGrid()
