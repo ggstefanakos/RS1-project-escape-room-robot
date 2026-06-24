@@ -16,6 +16,7 @@ Panels:
     Name: Selection
   - Class: rviz_common/Tool Properties
     Expanded:
+      - /2D Pose Estimate1
       - /2D Goal Pose1
       - /Publish Point1
     Name: Tool Properties
@@ -29,7 +30,7 @@ Panels:
     Experimental: false
     Name: Time
     SyncMode: 0
-    SyncSource: PointCloud2
+    SyncSource: ""
 Visualization Manager:
   Class: ""
   Displays:
@@ -69,48 +70,6 @@ Visualization Manager:
         Expand Link Details: false
         Expand Tree: false
         Link Tree Style: Links in Alphabetic Order
-        base_footprint:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        camera_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        fl_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        fr_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        imu_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        laser_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        rl_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        rr_wheel_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
@@ -126,55 +85,13 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        base_footprint:
-          Value: true
-        base_link:
-          Value: true
-        camera_link:
-          Value: true
-        fl_wheel_link:
-          Value: true
-        fr_wheel_link:
-          Value: true
-        imu_link:
-          Value: true
-        laser_frame:
-          Value: true
-        laser_link:
-          Value: true
-        map:
-          Value: true
-        odom:
-          Value: true
-        rl_wheel_link:
-          Value: true
-        rr_wheel_link:
-          Value: true
       Marker Scale: 0.44999998807907104
       Name: TF
       Show Arrows: true
       Show Axes: true
       Show Names: false
       Tree:
-        map:
-          odom:
-            base_footprint:
-              base_link:
-                camera_link:
-                  {}
-                fl_wheel_link:
-                  {}
-                fr_wheel_link:
-                  {}
-                imu_link:
-                  {}
-                laser_link:
-                  laser_frame:
-                    {}
-                rl_wheel_link:
-                  {}
-                rr_wheel_link:
-                  {}
+        {}
       Update Interval: 0
       Value: true
     - Alpha: 0.699999988079071
@@ -284,7 +201,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /initialpose
+        Value: /est_pose
     - Class: rviz_default_plugins/SetGoal
       Topic:
         Depth: 5
