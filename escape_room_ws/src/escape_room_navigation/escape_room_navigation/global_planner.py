@@ -39,7 +39,7 @@ class AStarPlanner(Node):
         
         grid = np.array(msg.data).reshape((height, width))
         obstacle_map = np.zeros_like(grid, dtype=np.uint8)
-        obstacle_map[grid > 50] = 255 
+        obstacle_map[grid > 60] = 255 
         
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.inflation_radius_pixels*2, self.inflation_radius_pixels*2))
         inflated_map = cv2.dilate(obstacle_map, kernel, iterations=1)
