@@ -6,6 +6,7 @@ echo "🚀 Εκκίνηση Συστήματος Escape Room..."
 gnome-terminal --tab --title="1. Lidar (ROS1)" -- bash -c "
 echo 'Φόρτωση ROS1...';
 source /opt/ros/noetic/setup.bash;
+export ROS_DOMAIN_ID=92;
 roscore &
 sleep 5;
 echo 'Εκκίνηση Lidar...';
@@ -16,6 +17,7 @@ exec bash"
 gnome-terminal --tab --title="1.1 Odometry (ROS1)" -- bash -c "
 echo 'Φόρτωση ROS1...';
 source /opt/ros/noetic/setup.bash;
+export ROS_DOMAIN_ID=92;
 roscore &
 sleep 15;
 echo 'Εκκίνηση Odom...';
@@ -30,6 +32,7 @@ sleep 20;
 echo 'Φόρτωση ROS1 & ROS2...';
 source /opt/ros/noetic/setup.bash;
 source /opt/ros/galactic/setup.bash;
+export ROS_DOMAIN_ID=92;
 echo 'Εκκίνηση Γέφυρας...';
 rosparam load /home/er/Desktop/Projects/TeamA06/RS1-project-escape-room-robot/escape_room_ws/bridge.yaml;
 ros2 run ros1_bridge parameter_bridge;
@@ -43,6 +46,7 @@ echo 'Καθαρισμός περιβάλλοντος και φόρτωση ROS2
 # unset PYTHONPATH;
 source /opt/ros/galactic/setup.bash;
 source ~/Desktop/Projects/TeamA06/RS1-project-escape-room-robot/escape_room_ws/install/setup.bash;
+export ROS_DOMAIN_ID=92;
 echo 'Εκκίνηση Launch File...';
 ros2 launch escape_room_bringup robot_brain.launch.py;
 exec bash"
