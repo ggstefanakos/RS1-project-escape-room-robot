@@ -148,6 +148,26 @@ class EkfLidarSlam(Node):
         t_odom.transform.translation.z = msg.pose.pose.position.z
         t_odom.transform.rotation = msg.pose.pose.orientation
         self.tf_broadcaster.sendTransform(t_odom)
+    
+    def reset_slam_callback(self, request, response):
+        """Εκτελεί ακαριαίο reset της θέσης του EKF και καθαρισμό του χάρτη"""
+        self.get_logger().warn("🔄 Reset Command Received! Re-initializing SLAM...")
+        
+        # 1. Μηδενισμός Κατάστασης EKF
+        self.X = np.zeros((3, 1))
+        self.P = np.eye(3) * 0.1
+        self.v = 0.0
+        self.omega = 0.0
+        self.last_time = time.time()
+        
+        # 2. Ολικός Καθαρισμός Χάρτη (Όλα ξανά 127 / Άγνωστα)
+        self.grid.fill(127)
+        
+        # 3. Αναγκαστικό άμεσο publish του άδειου χάρτη για να ενημερωθεί το RViz
+        self.publish_map()
+        
+        self.get_logger().info("✅ SLAM successfully initialized to (0,0,0). Map cleared.")
+        return response
 
     def scan_callback(self, msg):
         rx_pred = self.X[0, 0]
