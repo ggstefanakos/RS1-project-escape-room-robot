@@ -1,52 +1,48 @@
-#!/usr/bin/env python3
+ #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from nav_msgs.msg import OccupancyGrid, Path
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from geometry_msgs.msg import PoseStamped
+from tf2_ros import Buffer, TransformListener, TransformException # ΠΡΟΣΘΗΚΗ: Βιβλιοθήκες TF
 import numpy as np
 import cv2
 import heapq
 import math
-from tf2_ros import Buffer, TransformListener, TransformException
+
 class AStarPlanner(Node):
     def __init__(self):
         super().__init__('global_planner_node')
         
-        # 1. Subscribers: Τι ακούει ο αλγόριθμος
+        # 1. Subscribers & Listeners
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.goal_sub = self.create_subscription(PoseStamped, '/goal_pose', self.goal_callback, 10)
-
+        
+        # ΑΦΑΙΡΕΣΗ: Το start_sub έφυγε.
+        # ΠΡΟΣΘΗΚΗ: Αυτόματο ραντάρ θέσης (TF Listener)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
         
-        # 2. Publisher: Τι εκπέμπει ο αλγόριθμος (Το μονοπάτι)
+        # 2. Publisher (Το μονοπάτι)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
         
         # Εσωτερικές μεταβλητές
         self.grid_map = None
         self.map_data = None
-        self.start_pose = None
         self.goal_pose = None
         
-        # Παράμετρος: Πόσα pixels να "φουσκώσουμε" τους τοίχους (Ακτίνα ρομπότ)
-        self.inflation_radius_pixels = 4 
+        self.inflation_radius_pixels = 5
 
-        self.get_logger().info("A* Global Planner initialized. Waiting for Map, Start, and Goal...")
+        self.get_logger().info("🚀 A* Global Planner initialized. Waiting for Map and Goal...")
 
     def map_callback(self, msg):
-        """Λαμβάνει τον χάρτη από το SLAM ή τον Map Server και φουσκώνει τους τοίχους"""
         self.map_data = msg
         width = msg.info.width
         height = msg.info.height
         
-        # Μετατροπή του 1D array του ROS σε 2D Numpy Array
         grid = np.array(msg.data).reshape((height, width))
-        
-        # Δημιουργία καθαρού χάρτη εμποδίων (0=Ελεύθερο, 100=Τοίχος)
         obstacle_map = np.zeros_like(grid, dtype=np.uint8)
-        obstacle_map[grid > 50] = 255  # Οι τοίχοι γίνονται λευκοί
+        obstacle_map[grid > 50] = 255 
         
-        # INFLATION: Φουσκώνουμε τους τοίχους με OpenCV (Dilation) για να μην βρίσκει το ρομπότ
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.inflation_radius_pixels*2, self.inflation_radius_pixels*2))
         inflated_map = cv2.dilate(obstacle_map, kernel, iterations=1)
         
@@ -54,19 +50,12 @@ class AStarPlanner(Node):
         self.get_logger().info("Map received and inflated!")
         self.try_plan()
 
-    def start_callback(self, msg):
-        self.start_pose = msg.pose.pose.position
-        self.get_logger().info("Start pose received.")
-        self.try_plan()
-
     def goal_callback(self, msg):
         self.goal_pose = msg.pose.position
-        self.get_logger().info("Goal pose received. Calculating path...")
+        self.get_logger().info("🎯 Goal pose received. Acquiring current robot position...")
         self.try_plan()
 
-    # --- ΒΟΗΘΗΤΙΚΕΣ ΣΥΝΑΡΤΗΣΕΙΣ ΜΕΤΑΤΡΟΠΗΣ ΣΥΝΤΕΤΑΓΜΕΝΩΝ ---
     def world_to_grid(self, x, y):
-        """Μετατρέπει συντεταγμένες μέτρων (m) σε pixels του χάρτη"""
         res = self.map_data.info.resolution
         orig_x = self.map_data.info.origin.position.x
         orig_y = self.map_data.info.origin.position.y
@@ -75,7 +64,6 @@ class AStarPlanner(Node):
         return (grid_x, grid_y)
 
     def grid_to_world(self, grid_x, grid_y):
-        """Μετατρέπει pixels του χάρτη σε συντεταγμένες μέτρων (m)"""
         res = self.map_data.info.resolution
         orig_x = self.map_data.info.origin.position.x
         orig_y = self.map_data.info.origin.position.y
@@ -83,9 +71,7 @@ class AStarPlanner(Node):
         y = (grid_y * res) + orig_y + (res / 2.0)
         return (x, y)
 
-    # --- Ο ΚΥΡΙΟΣ ΑΛΓΟΡΙΘΜΟΣ A* ---
     def heuristic(self, a, b):
-        """Ευκλείδεια απόσταση (H-cost)"""
         return math.hypot(a[0] - b[0], a[1] - b[1])
 
     def try_plan(self):
@@ -116,22 +102,21 @@ class AStarPlanner(Node):
             return
 
         self.get_logger().info(f"Planning from ({robot_x:.2f}, {robot_y:.2f}) to ({self.goal_pose.x:.2f}, {self.goal_pose.y:.2f})...")
-
+        
         # Εκτέλεση A*
         path_indices = self.a_star(start_idx, goal_idx)
         
         if path_indices:
             self.publish_path(path_indices)
-            self.get_logger().info(f"Path found! Length: {len(path_indices)} waypoints.")
+            self.get_logger().info(f"✅ Path found! Length: {len(path_indices)} waypoints.")
         else:
-            self.get_logger().error("A* could not find a path.")
+            self.get_logger().error("❌ A* could not find a valid path.")
             
         # Καθαρισμός του goal για να περιμένει νέα εντολή
         self.goal_pose = None
 
     def a_star(self, start, goal):
-        """Ο πυρήνας του A* Algorithm με χρήση Priority Queue (heapq)"""
-        neighbors = [(0,1),(0,-1),(1,0),(-1,0), (1,1),(-1,1),(1,-1),(-1,-1)] # 8-way movement
+        neighbors = [(0,1),(0,-1),(1,0),(-1,0), (1,1),(-1,1),(1,-1),(-1,-1)] 
         
         close_set = set()
         came_from = {}
@@ -150,17 +135,15 @@ class AStarPlanner(Node):
                     data.append(current)
                     current = came_from[current]
                 data.append(start)
-                return data[::-1] # Επιστροφή της λίστας από την αρχή στο τέλος
+                return data[::-1] 
                 
             close_set.add(current)
             
             for i, j in neighbors:
                 neighbor = current[0] + i, current[1] + j
                 
-                # Έλεγχος αν βγαίνουμε εκτός χάρτη
                 if 0 <= neighbor[1] < self.grid_map.shape[0]:
                     if 0 <= neighbor[0] < self.grid_map.shape[1]:
-                        # Έλεγχος για εμπόδιο (Τοίχος)
                         if self.grid_map[neighbor[1]][neighbor[0]] == 255:
                             continue
                     else:
@@ -168,7 +151,6 @@ class AStarPlanner(Node):
                 else:
                     continue
                 
-                # Αν η κίνηση είναι διαγώνια, το κόστος είναι 1.414, αλλιώς 1.0
                 move_cost = 1.414 if i != 0 and j != 0 else 1.0
                 tentative_g_score = gscore[current] + move_cost
                 
@@ -184,7 +166,6 @@ class AStarPlanner(Node):
         return False
 
     def publish_path(self, path_indices):
-        """Μετατρέπει τα pixels ξανά σε μέτρα και τα κάνει publish ως Path message"""
         msg = Path()
         msg.header.frame_id = 'map'
         msg.header.stamp = self.get_clock().now().to_msg()
