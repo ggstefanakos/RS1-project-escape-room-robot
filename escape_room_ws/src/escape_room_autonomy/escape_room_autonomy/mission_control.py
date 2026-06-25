@@ -1,36 +1,59 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Point
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 import py_trees
 import time
-import random
 import math
-from geometry_msgs.msg import PoseStamped, Point
-
-# --- ΝΕΑ IMPORTS ΓΙΑ ΤΗΝ ΟΠΤΙΚΟΠΟΙΗΣΗ (RVIZ & NAV2) ---
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import OccupancyGrid
+import numpy as np
+import cv2
 from visualization_msgs.msg import Marker, MarkerArray
-from sensor_msgs.msg import PointCloud2, PointField
+from sensor_msgs.msg import PointCloud2
 import sensor_msgs_py.point_cloud2 as pc2
 from std_msgs.msg import Header
 
 # ==========================================
-# CONFIGURATION: ΕΔΩ ΘΑ ΒΑΛΕΤΕ ΤΑ DATA ΤΗΣ ΠΑΡΟΥΣΙΑΣΗΣ
+# CONFIGURATION
 # ==========================================
-# Το format είναι: { Door_ArUco_ID : Required_Key_ArUco_ID }
 KEY_DOOR_MATCHES = {
-   0 : 1,  # Η πόρτα 10 ανοίγει με το κλειδί 1
-    2: 4,  # Η πόρτα 11 ανοίγει με το κλειδί 2
-    5: 6   # Η πόρτα 12 ανοίγει με το κλειδί 3
+    0: 1,  # Η πόρτα 0 ανοίγει με το κλειδί 1
+    2: 4,  # Η πόρτα 2 ανοίγει με το κλειδί 4
+    5: 6   # Η πόρτα 5 ανοίγει με το κλειδί 6
 }
 
 # ==========================================
 # 1. ΤΑ BEHAVIORS (Τουβλάκια)
 # ==========================================
 
+
+class InitialSpinAction(py_trees.behaviour.Behaviour):
+    def __init__(self, name, node):
+        super(InitialSpinAction, self).__init__(name)
+        self.node = node
+        self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
+        self.spin_duration = 15.0 # Δευτερόλεπτα (Αργή περιστροφή)
+        self.start_time = None
+
+    def initialise(self):
+        self.start_time = self.node.get_clock().now().nanoseconds / 1e9
+        self.node.get_logger().info("🌀 Ξεκινάω 360 Spin αναγνώρισης χώρου (15 sec)...")
+
+    def update(self):
+        current_time = self.node.get_clock().now().nanoseconds / 1e9
+        if current_time - self.start_time < self.spin_duration:
+            msg = Twist()
+            msg.angular.z = 0.4  # Σταθερή, αργή περιστροφή (rad/s)
+            self.cmd_pub.publish(msg)
+            return py_trees.common.Status.RUNNING
+        else:
+            self.cmd_pub.publish(Twist()) # Φρένο
+            self.node.get_logger().info("✅ Το 360 Spin ολοκληρώθηκε! Έτοιμος για εξερεύνηση.")
+            return py_trees.common.Status.SUCCESS
 class CheckForUnlockableDoor(py_trees.behaviour.Behaviour):
     def __init__(self, name):
         super(CheckForUnlockableDoor, self).__init__(name)
@@ -40,12 +63,10 @@ class CheckForUnlockableDoor(py_trees.behaviour.Behaviour):
         self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
 
     def update(self):
-        # Ελέγχουμε αν υπάρχει ταίριασμα ανάμεσα στα κλειδιά μας και τις πόρτες που ξέρουμε
         for door_id, door_coords in self.blackboard.discovered_doors.items():
             required_key = KEY_DOOR_MATCHES.get(door_id)
             
             if required_key in self.blackboard.keys_inventory:
-                # Έχουμε το σωστό κλειδί για αυτή την πόρτα!
                 self.blackboard.target_door = {
                     "door_id": door_id, 
                     "key_id": required_key, 
@@ -68,11 +89,13 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
         self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
+        # ΠΡΟΣΘΗΚΗ: Μνήμη για τις πόρτες που ανοίξαμε
+        self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
 
     def initialise(self):
         self.goal_sent = False
         self.target = self.blackboard.target_door
-        self.node.get_logger().info(f" 🚀 [MISSION] Πάω να ανοίξω την ΠΟΡΤΑ {self.target['door_id']} με το ΚΛΕΙΔΙ {self.target['key_id']}!")
+        self.node.get_logger().info(f" 🚀 [MISSION] Πάω στο ΚΕΝΤΡΟ της ΠΟΡΤΑΣ {self.target['door_id']} με το ΚΛΕΙΔΙ {self.target['key_id']}!")
 
     def update(self):
         if not self.goal_sent:
@@ -95,27 +118,137 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
             if dist < 0.20:
                 self.node.get_logger().info(f">>> ✨ ΞΕΚΛΕΙΔΩΣΑ ΤΗΝ ΠΟΡΤΑ {self.target['door_id']}! 🔓 <<<")
                 
-                # Πετάμε το κλειδί και διαγράφουμε την πόρτα από τη μνήμη
                 self.blackboard.keys_inventory.remove(self.target['key_id'])
                 del self.blackboard.discovered_doors[self.target['door_id']]
                 
+                # Καταγράφουμε ότι άνοιξε για να την αγνοεί η κάμερα στο μέλλον
+                self.blackboard.unlocked_doors.append(self.target['door_id'])
                 self.blackboard.target_door = None
+                
                 return py_trees.common.Status.SUCCESS
             else:
-                self.node.get_logger().info(f"Πλησιάζω Πόρτα {self.target['door_id']}... Απόσταση: {dist:.2f}m")
+                self.node.get_logger().info(f"Πλησιάζω Κέντρο Πόρτας {self.target['door_id']}... Απόσταση: {dist:.2f}m")
                 return py_trees.common.Status.RUNNING
                 
         except TransformException:
             return py_trees.common.Status.RUNNING
 
-# ΑΛΛΑΓΗ 2: Αντικατέστησε ολόκληρη την ExploreMazeAction
 class ExploreMazeAction(py_trees.behaviour.Behaviour):
     def __init__(self, name, node):
         super(ExploreMazeAction, self).__init__(name)
         self.node = node
+        self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        
+        self.blackboard = py_trees.blackboard.Client(name=name)
+        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
+        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
+
+        # DEBUGGABLE CONFIGURATION
+        self.config = {
+            'min_frontier_size': 10,     # Πόσα pixels ελάχιστο για να μην είναι θόρυβος
+            'safe_margin_meters': 0.25,  # Πόσο "πίσω" να τραβήξει τον στόχο για ασφάλεια
+            'replanning_rate': 2.0       # Κάθε 2 δεύτερα βρίσκει το επόμενο Σύνορο
+        }
+        self.last_plan_time = 0.0
 
     def update(self):
-        self.node.get_logger().info("Εξερεύνηση... (Αναμονή για δεδομένα στο /vision/detected_aruco)")
+        current_time = self.node.get_clock().now().nanoseconds / 1e9
+        if current_time - self.last_plan_time < self.config['replanning_rate']:
+            return py_trees.common.Status.RUNNING
+
+        if not hasattr(self.blackboard, 'grid_map') or self.blackboard.grid_map is None:
+            return py_trees.common.Status.RUNNING
+
+        grid = self.blackboard.grid_map
+        res = self.blackboard.map_info.resolution
+        orig_x = self.blackboard.map_info.origin.position.x
+        orig_y = self.blackboard.map_info.origin.position.y
+
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+            rx = t.transform.translation.x
+            ry = t.transform.translation.y
+        except TransformException:
+            return py_trees.common.Status.RUNNING
+
+        # --- OpenCV FRONTIER ALGORITHM ---
+        unknown_mask = np.uint8(grid == -1) * 255
+        free_mask = np.uint8(grid == 0) * 255
+
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        unknown_dilated = cv2.dilate(unknown_mask, kernel, iterations=1)
+        frontier_mask = cv2.bitwise_and(free_mask, unknown_dilated)
+
+        contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        best_frontier = None
+        min_dist = float('inf')
+
+        for contour in contours:
+            if cv2.contourArea(contour) < self.config['min_frontier_size']:
+                continue
+            
+            M = cv2.moments(contour)
+            if M["m00"] == 0: continue
+            cx_px = int(M["m10"] / M["m00"])
+            cy_px = int(M["m01"] / M["m00"])
+            
+            fx = (cx_px * res) + orig_x
+            fy = (cy_px * res) + orig_y
+
+            dist = math.hypot(fx - rx, fy - ry)
+            if dist < min_dist:
+                min_dist = dist
+                best_frontier = (fx, fy)
+
+        # --- PULLBACK TARGET ---
+        # --- PULLBACK TARGET (SMART VERSION) ---
+        if best_frontier:
+            fx, fy = best_frontier
+            
+            # Βρίσκουμε τη γωνία που κοιτάει ακριβώς προς το ρομπότ
+            angle_to_robot = math.atan2(ry - fy, rx - fx)
+            
+            safe_x, safe_y = fx, fy
+            found_safe_spot = False
+            
+            # Κάνουμε "βηματάκια" 5 εκατοστών προς το ρομπότ μέχρι να βρούμε καθαρό έδαφος
+            for step in range(1, 20):  # Ψάχνουμε μέχρι 1 μέτρο πίσω (20 * 0.05m)
+                margin = step * 0.05
+                test_x = fx + math.cos(angle_to_robot) * margin
+                test_y = fy + math.sin(angle_to_robot) * margin
+                
+                # Μετατρέπουμε το test point σε pixels του χάρτη
+                px = int((test_x - orig_x) / res)
+                py = int((test_y - orig_y) / res)
+                
+                # Ελέγχουμε αν είμαστε εντός ορίων του χάρτη
+                if 0 <= px < grid.shape[1] and 0 <= py < grid.shape[0]:
+                    # Ελέγχουμε αν το έδαφος είναι ΑΠΟΛΥΤΑ ΚΑΘΑΡΟ (0)
+                    if grid[py, px] == 0: 
+                        safe_x = test_x
+                        safe_y = test_y
+                        found_safe_spot = True
+                        break # Βρήκαμε ασφαλές σημείο, σταματάμε το ψάξιμο!
+                        
+            if not found_safe_spot:
+                self.node.get_logger().warn("⚠️ Το σύνορο φαίνεται εγκλωβισμένο σε τοίχους. Το ακυρώνω και ψάχνω άλλο.")
+                return py_trees.common.Status.RUNNING
+
+            # Αποστολή του επιβεβαιωμένου, ασφαλούς στόχου
+            msg = PoseStamped()
+            msg.header.frame_id = 'map'
+            msg.header.stamp = self.node.get_clock().now().to_msg()
+            msg.pose.position.x = safe_x
+            msg.pose.position.y = safe_y
+            msg.pose.orientation.w = 1.0
+            self.goal_pub.publish(msg)
+            
+            self.node.get_logger().info(f"🗺️ Ασφαλές Σύνορο βρέθηκε στα ({safe_x:.2f}, {safe_y:.2f})")
+            self.last_plan_time = current_time
+
         return py_trees.common.Status.RUNNING
 
 
@@ -124,54 +257,78 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 # ==========================================
 
 def create_root(node):
-    root = py_trees.composites.Selector(name="Mission_Priorities", memory=False)
-    unlock_sequence = py_trees.composites.Sequence(name="Unlock_Door_Priority", memory=False)
+    # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
+    root = py_trees.composites.Sequence(name="Main_Mission", memory=True)
     
+    spin_action = InitialSpinAction(name="Action: 360 Spin", node=node)
+    
+    # ΠΡΟΣΘΗΚΗ: wrapping του spin σε OneShot Decorator
+    spin_oneshot = py_trees.decorators.OneShot(
+        child=spin_action,
+        name="OneShot_Protection",
+        policy=py_trees.common.OneShotPolicy.ON_SUCCESSFUL_COMPLETION
+    )
+    
+    mission_selector = py_trees.composites.Selector(name="Mission_Priorities", memory=False)
+    
+    unlock_sequence = py_trees.composites.Sequence(name="Unlock_Door_Priority", memory=False)
     check_match = CheckForUnlockableDoor(name="Condition: Έχουμε κλειδί για γνωστή πόρτα;")
     unlock_door = UnlockDoorAction(name="Action: Άνοιξε Πόρτα", node=node)
     
     unlock_sequence.add_children([check_match, unlock_door])
     explore = ExploreMazeAction(name="Action: Εξερεύνηση", node=node)
     
-    root.add_children([unlock_sequence, explore])
+    mission_selector.add_children([unlock_sequence, explore])
+    
+    # ΠΡΟΣΘΗΚΗ: Αντί για το spin_action, βάζουμε το spin_oneshot
+    root.add_children([spin_oneshot, mission_selector])
+    
     return root
 
 class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
-        # ΑΛΛΑΓΗ 3: Μέσα στην def __init__(self):
+        
         self.aruco_sub = self.create_subscription(
             Point, 
             '/vision/detected_aruco', 
             self.aruco_callback, 
             10
         )
-        # --- PUBLISHERS ΓΙΑ RVIZ ΚΑΙ NAV2 ---
+        self.map_sub = self.create_subscription(
+            OccupancyGrid, '/map', self.map_callback, 10)
+        
         self.marker_pub = self.create_publisher(MarkerArray, '/door_markers', 10)
         self.cloud_pub = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
-        
-        # Timer που ζωγραφίζει συνεχώς τα εμπόδια (2 φορές το δευτερόλεπτο)
         self.vis_timer = self.create_timer(0.5, self.publish_dynamic_obstacles)
         
-        # Αρχικοποίηση Blackboard (Μνήμη)
+        # ΠΡΟΣΘΗΚΗ: Δομές δεδομένων για τον υπολογισμό των πορτών
+        self.raw_door_posts = {} # Format: {door_id: [(x, y)]}
+        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες (όχι θόρυβος)
+
         self.blackboard = py_trees.blackboard.Client(name="Master")
         self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
+
+        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
+        self.blackboard.grid_map = None
+        self.blackboard.map_info = None
         
         self.blackboard.keys_inventory = []
         self.blackboard.discovered_doors = {}
         self.blackboard.target_door = None
+        self.blackboard.unlocked_doors = []
         
         self.tree = py_trees.trees.BehaviourTree(create_root(self))
         self.tree.setup(timeout=15)
         
         self.timer = self.create_timer(1.0, self.tick_tree)
 
-    # ΑΛΛΑΓΗ 4: Νέα συνάρτηση μέσα στο MissionControlNode
     def aruco_callback(self, msg):
-        """ Διαβάζει το topic της κάμερας και ενημερώνει τη μνήμη του δέντρου """
-        detected_id = int(msg.z) # Χρησιμοποιούμε το Z για το ArUco ID!
+        detected_id = int(msg.z) 
         x = float(msg.x)
         y = float(msg.y)
         
@@ -183,15 +340,31 @@ class MissionControlNode(Node):
                 
         # Αν το ID είναι ΠΟΡΤΑ
         elif detected_id in KEY_DOOR_MATCHES.keys():
-            if detected_id not in self.blackboard.discovered_doors:
-                self.get_logger().info(f"📥 [VISION] Βρήκα ΠΟΡΤΑ: {detected_id} στα ({x}, {y})")
-                self.blackboard.discovered_doors[detected_id] = (x, y)
+            # Αγνόησε την αν την έχουμε ήδη ανοίξει ή αν έχει ήδη βρεθεί πλήρως
+            if detected_id in self.blackboard.unlocked_doors or detected_id in self.blackboard.discovered_doors:
+                return
+
+            if detected_id not in self.raw_door_posts:
+                self.raw_door_posts[detected_id] = [(x, y)]
+                self.get_logger().info(f"🔍 [VISION] Εντοπίστηκε η 1η κολώνα της ΠΟΡΤΑΣ {detected_id} στα ({x:.2f}, {y:.2f}). Ψάχνω την 2η...")
+            else:
+                # Έχουμε δει ξανά αυτό το ID. Είναι η 2η κολώνα ή απλά διαβάσαμε την 1η από άλλη γωνία;
+                first_post = self.raw_door_posts[detected_id][0]
+                dist = math.hypot(x - first_post[0], y - first_post[1])
+                
+                # Αν απέχει ικανοποιητικά, τότε είναι το 2ο ArUco της πόρτας!
+                if dist > self.DOOR_WIDTH_THRESHOLD and len(self.raw_door_posts[detected_id]) == 1:
+                    # Υπολογισμός του μέσου (Κέντρο του Ανοίγματος)
+                    mid_x = (first_post[0] + x) / 2.0
+                    mid_y = (first_post[1] + y) / 2.0
+                    
+                    self.blackboard.discovered_doors[detected_id] = (mid_x, mid_y)
+                    self.get_logger().info(f"🎯 [VISION] Η ΠΟΡΤΑ {detected_id} ΚΛΕΙΔΩΣΕ! Κέντρο στα ({mid_x:.2f}, {mid_y:.2f}). (Άνοιγμα {dist:.2f}m)")
 
     def tick_tree(self):
         self.tree.tick()
 
     def publish_dynamic_obstacles(self):
-        """ Ζωγραφίζει τις κλειδωμένες πόρτες στο RViz και στον χάρτη του A* """
         marker_array = MarkerArray()
         delete_all_marker = Marker()
         delete_all_marker.action = Marker.DELETEALL 
@@ -199,10 +372,9 @@ class MissionControlNode(Node):
         points = []
         marker_id = 0
         
-        # Διαβάζει απευθείας από τη μνήμη ποιες πόρτες ξέρουμε
-        for door_id, (x, y) in self.blackboard.discovered_doors.items():
+        for door_id, (mid_x, mid_y) in self.blackboard.discovered_doors.items():
             
-            # --- 1. Marker για το RViz (Κόκκινος Κύβος) ---
+            # --- 1. Marker για το RViz (Κόκκινος Κύβος στο κέντρο) ---
             marker = Marker()
             marker.header.frame_id = "map"
             marker.header.stamp = self.get_clock().now().to_msg()
@@ -211,35 +383,39 @@ class MissionControlNode(Node):
             marker.type = Marker.CUBE
             marker.action = Marker.ADD
             
-            marker.pose.position.x = float(x)
-            marker.pose.position.y = float(y)
+            marker.pose.position.x = float(mid_x)
+            marker.pose.position.y = float(mid_y)
             marker.pose.position.z = 0.5 
             
-            marker.scale.x = 0.4
-            marker.scale.y = 0.4
+            marker.scale.x = 0.6 # Το κάνουμε λίγο πιο πλατύ για να μπλοκάρει το πέρασμα
+            marker.scale.y = 0.6
             marker.scale.z = 1.0
             
-            marker.color.a = 0.8 # Διαφάνεια
-            marker.color.r = 1.0 # Κόκκινο
+            marker.color.a = 0.8 
+            marker.color.r = 1.0 
             marker.color.g = 0.0
             marker.color.b = 0.0
             
             marker_array.markers.append(marker)
             marker_id += 1
             
-            # --- 2. PointCloud για να μπλοκάρει τον A* Planner ---
-            points.append([float(x), float(y), 0.0])
-            points.append([float(x) + 0.1, float(y), 0.0])
-            points.append([float(x) - 0.1, float(y), 0.0])
-            points.append([float(x), float(y) + 0.1, 0.0])
-            points.append([float(x), float(y) - 0.1, 0.0])
+            # --- 2. PointCloud για τον A* Planner ---
+            points.append([float(mid_x), float(mid_y), 0.0])
+            points.append([float(mid_x) + 0.15, float(mid_y), 0.0])
+            points.append([float(mid_x) - 0.15, float(mid_y), 0.0])
+            points.append([float(mid_x), float(mid_y) + 0.15, 0.0])
+            points.append([float(mid_x), float(mid_y) - 0.15, 0.0])
 
         self.marker_pub.publish(marker_array)
         
-        # Εκπέμπουμε το PointCloud μόνο αν υπάρχουν σημεία, αλλιώς στέλνουμε άδειο για να καθαρίσει ο χάρτης
         header = Header(frame_id='map', stamp=self.get_clock().now().to_msg())
         cloud_msg = pc2.create_cloud_xyz32(header, points)
         self.cloud_pub.publish(cloud_msg)
+    def map_callback(self, msg):
+        width = msg.info.width
+        height = msg.info.height
+        self.blackboard.grid_map = np.array(msg.data).reshape((height, width))
+        self.blackboard.map_info = msg.info
 
 def main(args=None):
     rclpy.init(args=args)

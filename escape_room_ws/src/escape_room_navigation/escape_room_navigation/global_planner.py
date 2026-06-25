@@ -7,6 +7,8 @@ import numpy as np
 import cv2
 import heapq
 import math
+from sensor_msgs.msg import PointCloud2
+import sensor_msgs_py.point_cloud2 as pc2
 
 class AStarPlanner(Node):
     def __init__(self):
@@ -18,6 +20,8 @@ class AStarPlanner(Node):
         
         # ΑΛΛΑΓΗ: Αντικατάσταση του TF Listener με Subscriber στο /est_pos
         self.pos_sub = self.create_subscription(PoseStamped, '/est_pos', self.pos_callback, 10)
+        # ΑΛΛΑΓΗ: Ακούμε το Mission Control για τις κλειδωμένες πόρτες (Εικονικά εμπόδια)
+        self.door_sub = self.create_subscription(PointCloud2, '/dynamic_doors_cloud', self.door_callback, 10)
         
         # 2. Publisher (Το μονοπάτι)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
@@ -38,8 +42,9 @@ class AStarPlanner(Node):
         height = msg.info.height
         
         grid = np.array(msg.data).reshape((height, width))
+       # Δημιουργία χάρτη εμποδίων (Εμπόδιο γίνεται ο τοίχος (>60) Ή το άγνωστο (-1))
         obstacle_map = np.zeros_like(grid, dtype=np.uint8)
-        obstacle_map[grid > 60] = 255 
+        obstacle_map[(grid > 60) | (grid == -1)] = 255
         
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.inflation_radius_pixels*2, self.inflation_radius_pixels*2))
         inflated_map = cv2.dilate(obstacle_map, kernel, iterations=1)
@@ -52,6 +57,20 @@ class AStarPlanner(Node):
         self.goal_pose = msg.pose.position
         self.get_logger().info("🎯 Goal pose received. Planning path from current estimated position...")
         self.try_plan()
+    
+    def door_callback(self, msg):
+        """ Ζωγραφίζει τις κλειδωμένες πόρτες από το Mission Control πάνω στον χάρτη του A* """
+        if self.grid_map is None:
+            return
+            
+        # Διαβάζουμε τα σημεία (X, Y) από το PointCloud
+        for p in pc2.read_points(msg, field_names=("x", "y"), skip_nans=True):
+            # Μετατρέπουμε τα πραγματικά μέτρα σε pixels του χάρτη
+            idx = self.world_to_grid(p[0], p[1])
+            
+            # Αν τα pixels είναι εντός χάρτη, τα κάνουμε απόλυτο εμπόδιο (255)
+            if 0 <= idx[0] < self.grid_map.shape[1] and 0 <= idx[1] < self.grid_map.shape[0]:
+                self.grid_map[idx[1], idx[0]] = 255
 
     # ΑΛΛΑΓΗ: Callback για την ανανέωση της θέσης του ρομπότ από το EKF SLAM
     def pos_callback(self, msg):
