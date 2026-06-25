@@ -7,6 +7,7 @@ from geometry_msgs.msg import Twist
 from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
+from sensor_msgs.msg import LaserScan
 
 def euler_from_quaternion(x, y, z, w):
     """Βοηθητική συνάρτηση: Μετατρέπει τα quaternions του ROS σε γωνία (rad)"""
@@ -21,6 +22,9 @@ class LocalPlannerPID(Node):
         
         self.path_sub = self.create_subscription(Path, '/plan', self.path_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+
+        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
+        self.emergency_stop = False
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -51,6 +55,27 @@ class LocalPlannerPID(Node):
         self.integral_error_ang = 0.0
         self.prev_error_ang = 0.0
         self.get_logger().info(f"Received new path with {len(self.current_path)} waypoints.")
+
+    def scan_callback(self, msg):
+        # Βρίσκουμε πόσες συνολικά ακτίνες έστειλε το Lidar
+        total_beams = len(msg.ranges)
+        
+        # Φτιάχνουμε έναν "Κώνο Ασφαλείας" στη μέση της όρασης του.
+        # Απομονώνουμε το μεσαίο 30% των ακτίνων (π.χ. κόβουμε το 35% από αριστερά και το 35% από δεξιά)
+        # Αυτό αντιστοιχεί περίπου στο πλάτος του ρομπότ σας.
+        center_start = int(total_beams * 0.35)
+        center_end = int(total_beams * 0.65)
+        
+        front_cone = msg.ranges[center_start:center_end]
+        
+        # Φιλτράρουμε τον θόρυβο ΜΟΝΟ μέσα σε αυτόν τον κώνο
+        valid_ranges = [r for r in front_cone if r > 0.05 and not math.isinf(r)]
+        
+        # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 25 εκατοστά, τραβάμε χειρόφρενο
+        if valid_ranges and min(valid_ranges) < 0.25:
+            self.emergency_stop = True
+        else:
+            self.emergency_stop = False
 
     def control_loop(self):
         if not self.current_path:
@@ -111,6 +136,12 @@ class LocalPlannerPID(Node):
             self.current_path = []
             cmd_v = 0.0
             cmd_w = 0.0
+        
+        # --- ΕΛΕΓΧΟΣ ΑΣΦΑΛΕΙΑΣ ---
+        if self.emergency_stop:
+            self.get_logger().warn("🛑 ΕΜΠΟΔΙΟ! Φρενάρισμα έκτακτης ανάγκης!")
+            cmd_v = 0.0 
+            # Δεν πειράζουμε το cmd_w! Το ρομπότ πρέπει να μπορεί να στρίψει στο νέο plan!
 
         twist = Twist()
         twist.linear.x = float(cmd_v)

@@ -25,6 +25,10 @@ class AStarPlanner(Node):
         
         # 2. Publisher (Το μονοπάτι)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
+
+
+        # Προσθήκη Timer που τρέχει τον Planner συνεχώς κάθε 1 δευτερόλεπτο
+        self.replanning_timer = self.create_timer(2.0, self.try_plan)
         
         # Εσωτερικές μεταβλητές
         self.grid_map = None
@@ -111,6 +115,14 @@ class AStarPlanner(Node):
         start_idx = self.world_to_grid(robot_x, robot_y)
         goal_idx = self.world_to_grid(self.goal_pose.x, self.goal_pose.y)
 
+        # Έλεγχος: Φτάσαμε στον στόχο; (Απόσταση < 0.20m)
+        dist_to_goal = self.heuristic(start_idx, goal_idx) * self.map_data.info.resolution
+        if dist_to_goal < 0.15:
+            self.get_logger().info("🏁 Στόχος επετεύχθη!")
+            self.goal_pose = None
+            self.publish_path([]) # Στέλνουμε άδειο μονοπάτι για να σταματήσει ο local controller
+            return
+
         # Έλεγχος αν τα όρια του grid map είναι σωστά για αποφυγή IndexError
         if not (0 <= start_idx[0] < self.grid_map.shape[1] and 0 <= start_idx[1] < self.grid_map.shape[0]):
             self.get_logger().error("Robot is out of map bounds! Cannot plan.")
@@ -144,7 +156,7 @@ class AStarPlanner(Node):
             self.get_logger().error("❌ A* could not find a valid path.")
             
         # Καθαρισμός του goal για να περιμένει νέα εντολή
-        self.goal_pose = None
+        ##self.goal_pose = None
 
     def a_star(self, start, goal):
         neighbors = [(0,1),(0,-1),(1,0),(-1,0), (1,1),(-1,1),(1,-1),(-1,-1)] 
