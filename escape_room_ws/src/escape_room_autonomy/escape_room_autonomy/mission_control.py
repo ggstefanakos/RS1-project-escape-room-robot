@@ -46,13 +46,26 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
     def update(self):
         current_time = self.node.get_clock().now().nanoseconds / 1e9
         if current_time - self.start_time < self.spin_duration:
+            # Δημιουργία καθαρού μηνύματος
             msg = Twist()
-            msg.angular.z = 0.4  # Σταθερή, αργή περιστροφή (rad/s)
+            msg.linear.x = 0.0
+            msg.linear.y = 0.0
+            msg.linear.z = 0.0
+            msg.angular.x = 0.0
+            msg.angular.y = 0.0
+            msg.angular.z = 0.4  # Αυτό που θες
+            
             self.cmd_pub.publish(msg)
             return py_trees.common.Status.RUNNING
         else:
-            self.cmd_pub.publish(Twist()) # Φρένο
-            self.node.get_logger().info("✅ Το 360 Spin ολοκληρώθηκε! Έτοιμος για εξερεύνηση.")
+            # Φρένο - επίσης καθαρό
+            stop_msg = Twist()
+            # Τα float είναι από default 0.0, αλλά για σιγουριά:
+            stop_msg.linear.x = 0.0
+            stop_msg.angular.z = 0.0
+            
+            self.cmd_pub.publish(stop_msg)
+            self.node.get_logger().info("✅ Το 360 Spin ολοκληρώθηκε!")
             return py_trees.common.Status.SUCCESS
 class CheckForUnlockableDoor(py_trees.behaviour.Behaviour):
     def __init__(self, name):
