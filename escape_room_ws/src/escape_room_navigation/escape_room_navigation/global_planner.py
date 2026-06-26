@@ -139,10 +139,10 @@ class AStarPlanner(Node):
         #     self.get_logger().error("Robot is currently inside an obstacle! Cannot plan.")
         #     self.goal_pose = None
         #     return
-        if self.grid_map[goal_idx[1], goal_idx[0]] == 255:
-            self.get_logger().error("Goal position is inside an obstacle!")
-            self.goal_pose = None
-            return
+        # if self.grid_map[goal_idx[1], goal_idx[0]] == 255:
+        #     self.get_logger().error("Goal position is inside an obstacle!")
+        #     self.goal_pose = None
+        #     return
 
         self.get_logger().info(f"Planning from ({robot_x:.2f}, {robot_y:.2f}) to ({self.goal_pose.x:.2f}, {self.goal_pose.y:.2f})...")
         
