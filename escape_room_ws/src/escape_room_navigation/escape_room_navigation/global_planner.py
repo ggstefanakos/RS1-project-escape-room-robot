@@ -135,10 +135,10 @@ class AStarPlanner(Node):
             return
 
         # Έλεγχος αν το start ή το goal είναι μέσα σε τοίχο
-        if self.grid_map[start_idx[1], start_idx[0]] == 255:
-            self.get_logger().error("Robot is currently inside an obstacle! Cannot plan.")
-            self.goal_pose = None
-            return
+        # if self.grid_map[start_idx[1], start_idx[0]] == 255:
+        #     self.get_logger().error("Robot is currently inside an obstacle! Cannot plan.")
+        #     self.goal_pose = None
+        #     return
         if self.grid_map[goal_idx[1], goal_idx[0]] == 255:
             self.get_logger().error("Goal position is inside an obstacle!")
             self.goal_pose = None
