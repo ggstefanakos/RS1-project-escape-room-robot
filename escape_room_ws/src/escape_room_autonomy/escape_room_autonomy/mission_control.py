@@ -210,12 +210,12 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         # --- 4. ΕΛΕΓΧΟΣ ΑΝ ΤΟ ΡΟΜΠΟΤ "ΚΟΛΛΗΣΕ" (Stuck Detection) ---
         # Τώρα τα rx, ry υπάρχουν εγγυημένα και το error έχει εξαφανιστεί!
-        if self.last_robot_pose is not None and self.current_target_frontier is not None:
-            dist_moved = math.hypot(rx - self.last_robot_pose[0], ry - self.last_robot_pose[1])
+        # if self.last_robot_pose is not None and self.current_target_frontier is not None:
+        #     dist_moved = math.hypot(rx - self.last_robot_pose[0], ry - self.last_robot_pose[1])
             
-            if dist_moved < 0.05:  
-                self.node.get_logger().warn("🚫 Το A* απέτυχε ή το ρομπότ κόλλησε! Το σύνορο μπαίνει σε Blacklist.")
-                self.blacklisted_frontiers.append(self.current_target_frontier)
+        #     if dist_moved < 0.05:  
+        #         self.node.get_logger().warn("🚫 Το A* απέτυχε ή το ρομπότ κόλλησε! Το σύνορο μπαίνει σε Blacklist.")
+        #         self.blacklisted_frontiers.append(self.current_target_frontier)
 
         if not hasattr(self.blackboard, 'grid_map') or self.blackboard.grid_map is None:
             return py_trees.common.Status.RUNNING
