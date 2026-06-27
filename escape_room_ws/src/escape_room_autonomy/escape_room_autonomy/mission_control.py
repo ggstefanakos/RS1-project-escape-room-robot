@@ -36,12 +36,12 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
         super(InitialSpinAction, self).__init__(name)
         self.node = node
         self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
-        self.spin_duration = 15.0 # Δευτερόλεπτα (Αργή περιστροφή)
+        self.spin_duration = 30.0 # Δευτερόλεπτα (Αργή περιστροφή)
         self.start_time = None
 
     def initialise(self):
         self.start_time = self.node.get_clock().now().nanoseconds / 1e9
-        self.node.get_logger().info("🌀 Ξεκινάω 360 Spin αναγνώρισης χώρου (15 sec)...")
+        self.node.get_logger().info(f"🌀 Ξεκινάω 360 Spin αναγνώρισης χώρου ({int(self.spin_duration)} sec)...")
 
     def update(self):
         current_time = self.node.get_clock().now().nanoseconds / 1e9
@@ -53,7 +53,7 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
             msg.linear.z = 0.0
             msg.angular.x = 0.0
             msg.angular.y = 0.0
-            msg.angular.z = 0.4  # Αυτό που θες
+            msg.angular.z = 2*np.pi/self.spin_duration
             
             self.cmd_pub.publish(msg)
             return py_trees.common.Status.RUNNING
