@@ -36,7 +36,7 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
         super(InitialSpinAction, self).__init__(name)
         self.node = node
         self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
-        self.spin_duration = 10.0 # Δευτερόλεπτα (Αργή περιστροφή)
+        self.spin_duration = 30.0 # Δευτερόλεπτα (Αργή περιστροφή)
         self.start_time = None
 
     def initialise(self):
@@ -53,7 +53,7 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
             msg.linear.z = 0.0
             msg.angular.x = 0.0
             msg.angular.y = 0.0
-            msg.angular.z = 0.09
+            msg.angular.z = 0.209
             
             self.cmd_pub.publish(msg)
             return py_trees.common.Status.RUNNING
@@ -308,6 +308,35 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             self.node.get_logger().info("🏆 Ο ΛΑΒΥΡΙΝΘΟΣ ΕΞΕΡΕΥΝΗΘΗΚΕ ΠΛΗΡΩΣ! Ενεργοποίηση πρωτοκόλλου επιστροφής...")
             self.blackboard.returning_home = True
             return py_trees.common.Status.RUNNING
+
+def create_root(node):
+    # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
+    root = py_trees.composites.Sequence(name="Main_Mission", memory=True)
+    
+    spin_action = InitialSpinAction(name="Action: 360 Spin", node=node)
+    
+    # ΠΡΟΣΘΗΚΗ: wrapping του spin σε OneShot Decorator
+    spin_oneshot = py_trees.decorators.OneShot(
+        child=spin_action,
+        name="OneShot_Protection",
+        policy=py_trees.common.OneShotPolicy.ON_SUCCESSFUL_COMPLETION
+    )
+    
+    mission_selector = py_trees.composites.Selector(name="Mission_Priorities", memory=False)
+    
+    unlock_sequence = py_trees.composites.Sequence(name="Unlock_Door_Priority", memory=False)
+    check_match = CheckForUnlockableDoor(name="Condition: Έχουμε κλειδί για γνωστή πόρτα;")
+    unlock_door = UnlockDoorAction(name="Action: Άνοιξε Πόρτα", node=node)
+    
+    unlock_sequence.add_children([check_match, unlock_door])
+    explore = ExploreMazeAction(name="Action: Εξερεύνηση", node=node)
+    
+    mission_selector.add_children([unlock_sequence, explore])
+    
+    # ΠΡΟΣΘΗΚΗ: Αντί για το spin_action, βάζουμε το spin_oneshot
+    root.add_children([spin_oneshot, mission_selector])
+    
+    return root
 
 class MissionControlNode(Node):
     def __init__(self):
