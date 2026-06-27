@@ -158,34 +158,64 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
         self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
 
-        # DEBUGGABLE CONFIGURATION
+        # CONFIGURATION
         self.config = {
-            'min_frontier_size': 10,     # Πόσα pixels ελάχιστο για να μην είναι θόρυβος
-            'safe_margin_meters': 0.25,  # Πόσο "πίσω" να τραβήξει τον στόχο για ασφάλεια
-            'replanning_rate': 2.0       # Κάθε 2 δεύτερα βρίσκει το επόμενο Σύνορο
+            'min_frontier_size': 10,     
+            'safe_margin_meters': 0.25,  
+            'replanning_rate': 2.0       
         }
         self.last_plan_time = 0.0
-
+        
+        # ΜΝΗΜΗ ΜΑΥΡΗΣ ΛΙΣΤΑΣ ΓΙΑ ΤΟΝ ΘΟΡΥΒΟ
         self.blacklisted_frontiers = []
         self.last_robot_pose = None
         self.current_target_frontier = None
 
     def update(self):
         current_time = self.node.get_clock().now().nanoseconds / 1e9
+        
+        # --- 1. Διαβάζουμε τη θέση του Ρομπότ ΠΡΩΤΑ ΑΠ' ΟΛΑ ---
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+            rx = t.transform.translation.x
+            ry = t.transform.translation.y
+        except TransformException:
+            return py_trees.common.Status.RUNNING
+
+        # --- 2. STATE: ΕΠΙΣΤΡΟΦΗ ΣΤΗ ΒΑΣΗ ---
+        if getattr(self.blackboard, 'returning_home', False):
+            dist_to_home = math.hypot(0.0 - rx, 0.0 - ry)
+            
+            if dist_to_home < 0.30: 
+                self.node.get_logger().info("🏁 ΑΠΟΣΤΟΛΗ ΕΞΕΤΕΛΕΣΘΗ! Το ρομπότ επέστρεψε με ασφάλεια στη βάση.")
+                return py_trees.common.Status.SUCCESS
+            
+            if current_time - self.last_plan_time > self.config['replanning_rate']:
+                msg = PoseStamped()
+                msg.header.frame_id = 'map'
+                msg.header.stamp = self.node.get_clock().now().to_msg()
+                msg.pose.position.x = 0.0
+                msg.pose.position.y = 0.0
+                msg.pose.orientation.w = 1.0
+                self.goal_pub.publish(msg)
+                self.node.get_logger().info(f"🏠 Επιστροφή στη βάση... (Απόσταση: {dist_to_home:.2f}m)")
+                self.last_plan_time = current_time
+                
+            return py_trees.common.Status.RUNNING
+
+
         # --- 3. STATE: ΚΑΝΟΝΙΚΗ ΕΞΕΡΕΥΝΗΣΗ ---
         if current_time - self.last_plan_time < self.config['replanning_rate']:
             return py_trees.common.Status.RUNNING
 
-        # --- ΠΡΟΣΘΗΚΗ: ΕΛΕΓΧΟΣ ΑΝ ΤΟ ΡΟΜΠΟΤ "ΚΟΛΛΗΣΕ" ---
+        # --- 4. ΕΛΕΓΧΟΣ ΑΝ ΤΟ ΡΟΜΠΟΤ "ΚΟΛΛΗΣΕ" (Stuck Detection) ---
+        # Τώρα τα rx, ry υπάρχουν εγγυημένα και το error έχει εξαφανιστεί!
         if self.last_robot_pose is not None and self.current_target_frontier is not None:
-            # Υπολογίζουμε πόσο κουνήθηκε το ρομπότ από το προηγούμενο plan
             dist_moved = math.hypot(rx - self.last_robot_pose[0], ry - self.last_robot_pose[1])
             
-            # Αν κουνήθηκε λιγότερο από 5 εκατοστά σε 2 δευτερόλεπτα, ο στόχος είναι άκυρος/θόρυβος!
             if dist_moved < 0.05:  
                 self.node.get_logger().warn("🚫 Το A* απέτυχε ή το ρομπότ κόλλησε! Το σύνορο μπαίνει σε Blacklist.")
                 self.blacklisted_frontiers.append(self.current_target_frontier)
-        # ------------------------------------------------
 
         if not hasattr(self.blackboard, 'grid_map') or self.blackboard.grid_map is None:
             return py_trees.common.Status.RUNNING
@@ -195,21 +225,12 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        try:
-            t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
-            rx = t.transform.translation.x
-            ry = t.transform.translation.y
-        except TransformException:
-            return py_trees.common.Status.RUNNING
-
-        # --- OpenCV FRONTIER ALGORITHM ---
+        # --- 5. OpenCV FRONTIER ALGORITHM (ΜΕ ΦΙΛΤΡΟ ΜΑΥΡΗΣ ΛΙΣΤΑΣ) ---
         unknown_mask = np.uint8(grid == -1) * 255
         free_mask = np.uint8(grid == 0) * 255
-
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         unknown_dilated = cv2.dilate(unknown_mask, kernel, iterations=1)
         frontier_mask = cv2.bitwise_and(free_mask, unknown_dilated)
-
         contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         best_frontier = None
@@ -227,57 +248,46 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             fx = (cx_px * res) + orig_x
             fy = (cy_px * res) + orig_y
 
-            # --- ΠΡΟΣΘΗΚΗ: ΑΓΝΟΗΣΕ ΤΑ BLACKLISTED ΣΥΝΟΡΑ ---
+            # Αγνοούμε τα σύνορα που βρίσκονται κοντά στη Μαύρη Λίστα
             is_blacklisted = False
             for bx, by in self.blacklisted_frontiers:
-                # Αν το νέο σύνορο είναι σε ακτίνα 40cm από ένα "κακό" σύνορο, αγνόησέ το
                 if math.hypot(fx - bx, fy - by) < 0.40: 
                     is_blacklisted = True
                     break
             if is_blacklisted:
                 continue
-            # ------------------------------------------------
 
             dist = math.hypot(fx - rx, fy - ry)
             if dist < min_dist:
                 min_dist = dist
                 best_frontier = (fx, fy)
 
-        # --- PULLBACK TARGET ---
-        # --- PULLBACK TARGET (SMART VERSION) ---
+        # --- 6. SMART PULLBACK TARGET ---
         if best_frontier:
             fx, fy = best_frontier
-            
-            # Βρίσκουμε τη γωνία που κοιτάει ακριβώς προς το ρομπότ
             angle_to_robot = math.atan2(ry - fy, rx - fx)
             
             safe_x, safe_y = fx, fy
             found_safe_spot = False
             
-            # Κάνουμε "βηματάκια" 5 εκατοστών προς το ρομπότ μέχρι να βρούμε καθαρό έδαφος
-            for step in range(1, 20):  # Ψάχνουμε μέχρι 1 μέτρο πίσω (20 * 0.05m)
+            for step in range(1, 20):  
                 margin = step * 0.05
                 test_x = fx + math.cos(angle_to_robot) * margin
                 test_y = fy + math.sin(angle_to_robot) * margin
-                
-                # Μετατρέπουμε το test point σε pixels του χάρτη
                 px = int((test_x - orig_x) / res)
                 py = int((test_y - orig_y) / res)
                 
-                # Ελέγχουμε αν είμαστε εντός ορίων του χάρτη
                 if 0 <= px < grid.shape[1] and 0 <= py < grid.shape[0]:
-                    # Ελέγχουμε αν το έδαφος είναι ΑΠΟΛΥΤΑ ΚΑΘΑΡΟ (0)
                     if grid[py, px] == 0: 
                         safe_x = test_x
                         safe_y = test_y
                         found_safe_spot = True
-                        break # Βρήκαμε ασφαλές σημείο, σταματάμε το ψάξιμο!
+                        break 
                         
             if not found_safe_spot:
-                self.node.get_logger().warn("⚠️ Το σύνορο φαίνεται εγκλωβισμένο σε τοίχους. Το ακυρώνω και ψάχνω άλλο.")
+                self.node.get_logger().warn("⚠️ Το σύνορο είναι εγκλωβισμένο. Το αγνοώ προσωρινά.")
                 return py_trees.common.Status.RUNNING
 
-            # Αποστολή του επιβεβαιωμένου, ασφαλούς στόχου
             msg = PoseStamped()
             msg.header.frame_id = 'map'
             msg.header.stamp = self.node.get_clock().now().to_msg()
@@ -286,48 +296,18 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             msg.pose.orientation.w = 1.0
             self.goal_pub.publish(msg)
             
-            # --- ΠΡΟΣΘΗΚΗ: ΑΠΟΘΗΚΕΥΣΗ ΓΙΑ ΤΟΝ ΕΠΟΜΕΝΟ ΕΛΕΓΧΟ ---
+            # Αποθηκεύουμε τα δεδομένα για να ελέγξουμε στο επόμενο βήμα αν το ρομπότ κινήθηκε
             self.last_robot_pose = (rx, ry)
             self.current_target_frontier = best_frontier
-            # ---------------------------------------------------
 
             self.node.get_logger().info(f"🗺️ Κυνηγάω ασφαλές Σύνορο στα ({safe_x:.2f}, {safe_y:.2f})")
             self.last_plan_time = current_time
             return py_trees.common.Status.RUNNING
-
-
-# ==========================================
-# 2. ΧΤΙΣΙΜΟ ΔΕΝΤΡΟΥ & ΚΟΜΒΟΣ
-# ==========================================
-
-def create_root(node):
-    # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
-    root = py_trees.composites.Sequence(name="Main_Mission", memory=True)
-    
-    spin_action = InitialSpinAction(name="Action: 360 Spin", node=node)
-    
-    # ΠΡΟΣΘΗΚΗ: wrapping του spin σε OneShot Decorator
-    spin_oneshot = py_trees.decorators.OneShot(
-        child=spin_action,
-        name="OneShot_Protection",
-        policy=py_trees.common.OneShotPolicy.ON_SUCCESSFUL_COMPLETION
-    )
-    
-    mission_selector = py_trees.composites.Selector(name="Mission_Priorities", memory=False)
-    
-    unlock_sequence = py_trees.composites.Sequence(name="Unlock_Door_Priority", memory=False)
-    check_match = CheckForUnlockableDoor(name="Condition: Έχουμε κλειδί για γνωστή πόρτα;")
-    unlock_door = UnlockDoorAction(name="Action: Άνοιξε Πόρτα", node=node)
-    
-    unlock_sequence.add_children([check_match, unlock_door])
-    explore = ExploreMazeAction(name="Action: Εξερεύνηση", node=node)
-    
-    mission_selector.add_children([unlock_sequence, explore])
-    
-    # ΠΡΟΣΘΗΚΗ: Αντί για το spin_action, βάζουμε το spin_oneshot
-    root.add_children([spin_oneshot, mission_selector])
-    
-    return root
+            
+        else:
+            self.node.get_logger().info("🏆 Ο ΛΑΒΥΡΙΝΘΟΣ ΕΞΕΡΕΥΝΗΘΗΚΕ ΠΛΗΡΩΣ! Ενεργοποίηση πρωτοκόλλου επιστροφής...")
+            self.blackboard.returning_home = True
+            return py_trees.common.Status.RUNNING
 
 class MissionControlNode(Node):
     def __init__(self):
