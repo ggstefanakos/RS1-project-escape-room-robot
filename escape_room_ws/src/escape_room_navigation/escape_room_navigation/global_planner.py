@@ -17,6 +17,8 @@ class AStarPlanner(Node):
         # 1. Subscribers
         self.map_sub = self.create_subscription(OccupancyGrid, '/map', self.map_callback, 10)
         self.goal_sub = self.create_subscription(PoseStamped, '/goal_pose', self.goal_callback, 10)
+
+        self.inf_map_pub = self.create_publisher(OccupancyGrid, '/infmap', 10)
         
         # ΑΛΛΑΓΗ: Αντικατάσταση του TF Listener με Subscriber στο /est_pos
         self.pos_sub = self.create_subscription(PoseStamped, '/est_pos', self.pos_callback, 10)
@@ -222,6 +224,23 @@ class AStarPlanner(Node):
             msg.poses.append(pose)
             
         self.path_pub.publish(msg)
+
+def publish_inflated_map(self, inflated_grid, original_map_info):
+        """
+        Παίρνει το 2D numpy array (inflated_grid) και τις πληροφορίες 
+        του αρχικού χάρτη (resolution, width, height, origin) και τα στέλνει.
+        """
+        inf_msg = OccupancyGrid()
+        inf_msg.header.stamp = self.get_clock().now().to_msg()
+        inf_msg.header.frame_id = 'map'
+        inf_msg.info = original_map_info
+        
+        # Το ROS 2 OccupancyGrid απαιτεί μια μονοδιάστατη λίστα (1D) από int8.
+        # Οπότε κάνουμε flatten() τον 2D πίνακα και τον μετατρέπουμε.
+        inf_msg.data = inflated_grid.flatten().astype(np.int8).tolist()
+        
+        self.inf_map_pub.publish(inf_msg)
+        self.get_logger().info("Δημοσιεύτηκε ο Inflated Map στο /infmap")
 
 def main(args=None):
     rclpy.init(args=args)
