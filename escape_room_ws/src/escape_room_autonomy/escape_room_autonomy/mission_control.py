@@ -289,7 +289,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
                     # Έλεγχος Μυωπικής Στόχευσης (Μην στοχεύεις κάτω από τα πόδια σου)
                     dist = math.hypot(fx - rx, fy - ry)
-                    if dist < 0.50:
+                    if dist < 1:
                         continue
                         
                     if dist < min_dist:
