@@ -225,8 +225,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (SECTOR-BASED EXPLORATION) ---
-        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (ΜΕ SCORING & FLOOD FILL) ---
+        # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
         grid = self.blackboard.grid_map
         res = self.blackboard.map_info.resolution
         orig_x = self.blackboard.map_info.origin.position.x
@@ -235,6 +234,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         rob_px = int((rx - orig_x) / res)
         rob_py = int((ry - orig_y) / res)
 
+        # 1. Βρίσκουμε τον ΠΡΟΣΒΑΣΙΜΟ ελεύθερο χώρο ρίχνοντας "μπογιά" από το ρομπότ (Flood Fill)
         free_img = np.uint8(grid == 0) * 255
         h, w = free_img.shape
         ff_mask = np.zeros((h+2, w+2), np.uint8)
@@ -243,53 +243,55 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             free_img[rob_py, rob_px] = 255 
             cv2.floodFill(free_img, ff_mask, (rob_px, rob_py), 128)
         
-        sector_size_m = 0.8 
-        sector_px = int(sector_size_m / res)
-        total_pixels_in_sector = sector_px * sector_px
+        # Κρατάμε ΜΟΝΟ τα pixels που έφτασε η μπογιά
+        reachable_mask = np.uint8(free_img == 128) * 255
+        unknown_mask = np.uint8(grid == -1) * 255
 
+        # 2. Το κρίσιμο βήμα: Βρίσκουμε πού ο ΠΡΟΣΒΑΣΙΜΟΣ χώρος ΑΚΟΥΜΠΑΕΙ το άγνωστο (Πραγματικά Ανοίγματα)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+        reachable_dilated = cv2.dilate(reachable_mask, kernel, iterations=1)
+        frontier_mask = cv2.bitwise_and(reachable_dilated, unknown_mask)
+
+        # 3. Εξάγουμε τα περιγράμματα αυτών των πραγματικών ανοιγμάτων
+        contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        
         best_frontier = None
-        # Αντί για min_dist, πλέον ψάχνουμε το ΥΨΗΛΟΤΕΡΟ ΣΚΟΡ
-        best_score = -float('inf') 
+        best_score = -float('inf')
 
-        for y in range(0, grid.shape[0], sector_px):
-            for x in range(0, grid.shape[1], sector_px):
-                sector_grid = grid[y:y+sector_px, x:x+sector_px]
-                sector_free = free_img[y:y+sector_px, x:x+sector_px]
+        for contour in contours:
+            # 4. ΑΓΝΟΟΥΜΕ ΤΟΝ ΘΟΡΥΒΟ: Αν το άνοιγμα είναι κάτω από 15 pixels, είναι απλά θόρυβος του SLAM
+            if len(contour) < 15:
+                continue
+            
+            M = cv2.moments(contour)
+            if M["m00"] == 0: continue
+            cx_px = int(M["m10"] / M["m00"])
+            cy_px = int(M["m01"] / M["m00"])
+            
+            fx = (cx_px * res) + orig_x
+            fy = (cy_px * res) + orig_y
 
-                unknown_count = np.count_nonzero(sector_grid == -1)
-                reachable_free_count = np.count_nonzero(sector_free == 128)
+            # Έλεγχος Μαύρης Λίστας
+            is_blacklisted = False
+            for bx, by in self.blacklisted_frontiers:
+                if math.hypot(fx - bx, fy - by) < 0.40: 
+                    is_blacklisted = True
+                    break
+            if is_blacklisted:
+                continue
 
-                # ΑΥΣΤΗΡΟ ΟΡΙΟ: Τουλάχιστον 25% άγνωστο (αγνοεί πλήρως τον θόρυβο κίνησης του SLAM)
-                if unknown_count > (total_pixels_in_sector * 0.25) and reachable_free_count > (total_pixels_in_sector * 0.15):
-                    
-                    free_y_indices, free_x_indices = np.where(sector_free == 128)
-                    cx_px = x + int(np.mean(free_x_indices))
-                    cy_px = y + int(np.mean(free_y_indices))
-
-                    fx = (cx_px * res) + orig_x
-                    fy = (cy_px * res) + orig_y
-
-                    is_blacklisted = False
-                    for bx, by in self.blacklisted_frontiers:
-                        if math.hypot(fx - bx, fy - by) < 0.40: 
-                            is_blacklisted = True
-                            break
-                    if is_blacklisted:
-                        continue
-
-                    dist = math.hypot(fx - rx, fy - ry)
-                    if dist < 0.50:
-                        continue
-                        
-                    # Η ΜΑΓΕΙΑ ΕΔΩ (Cost Function): 
-                    # Σκορ = (Πλήθος Άγνωστων Pixels) - (Απόσταση σε μέτρα * 30.0)
-                    # Το ρομπότ "έλκεται" σαν μαγνήτης από τις μεγάλες άγνωστες περιοχές (πόρτες/έξοδοι), 
-                    # ακόμα κι αν υπάρχει λίγος θόρυβος πιο κοντά του!
-                    score = unknown_count - (dist * 30.0)
-                    
-                    if score > best_score:
-                        best_score = score
-                        best_frontier = (fx, fy)
+            # Μυωπική στόχευση: Αγνοούμε αν είναι στα πόδια μας
+            dist = math.hypot(fx - rx, fy - ry)
+            if dist < 0.50:  
+                continue
+                
+            # 5. ΤΟ ΣΚΟΡ: (Μέγεθος Ανοίγματος) - (Ποινή Απόστασης)
+            # Έλκεται από μεγάλες πόρτες/διαδρόμους και αποφεύγει να τρέχει μακριά άσκοπα
+            score = len(contour) - (dist * 15.0)
+            
+            if score > best_score:
+                best_score = score
+                best_frontier = (fx, fy)
 
         # --- 6. PULLBACK TARGET Η ΤΕΡΜΑΤΙΣΜΟΣ ---
         # (Από εδώ και κάτω αφήνεις τον κώδικα όπως τον είχες!)

@@ -36,7 +36,7 @@ class AStarPlanner(Node):
         self.goal_pose = None
         self.current_pose = None # Αποθήκευση της τρέχουσας θέσης του ρομπότ
         
-        self.inflation_radius_pixels = 4
+        self.inflation_radius_pixels = 2
 
         self.get_logger().info("🚀 A* Global Planner initialized. Waiting for Map, Robot Pose (/est_pos) and Goal...")
 
