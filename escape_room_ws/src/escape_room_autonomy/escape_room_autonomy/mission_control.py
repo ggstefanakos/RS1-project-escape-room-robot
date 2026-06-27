@@ -226,12 +226,30 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_y = self.blackboard.map_info.origin.position.y
 
         # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (SECTOR-BASED EXPLORATION) ---
+        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (ΜΕ ΕΛΕΓΧΟ ΠΡΟΣΒΑΣΙΜΟΤΗΤΑΣ FLOOD FILL) ---
         grid = self.blackboard.grid_map
         res = self.blackboard.map_info.resolution
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        # 1. Ορίζουμε το μέγεθος της γειτονιάς σε μέτρα (π.χ. 0.8 x 0.8 μέτρα)
+        # Βρίσκουμε σε ποιο pixel πατάει το ρομπότ
+        rob_px = int((rx - orig_x) / res)
+        rob_py = int((ry - orig_y) / res)
+
+        # [ΝΕΟ] Το κόλπο του "Κουβά με Μπογιά" (Flood Fill)
+        # Δημιουργούμε μια εικόνα όπου ο ελεύθερος χώρος είναι λευκός (255)
+        free_img = np.uint8(grid == 0) * 255
+        h, w = free_img.shape
+        ff_mask = np.zeros((h+2, w+2), np.uint8)
+
+        if 0 <= rob_px < w and 0 <= rob_py < h:
+            free_img[rob_py, rob_px] = 255 # Εξασφαλίζουμε ότι πατάει σε λευκό pixel
+            # Ρίχνουμε "μπογιά" με τιμή 128 από τα πόδια του ρομπότ!
+            cv2.floodFill(free_img, ff_mask, (rob_px, rob_py), 128)
+        
+        # ΣΗΜΑΝΤΙΚΟ: Τώρα, ΟΛΟΣ ο προσβάσιμος ελεύθερος χώρος έχει την τιμή 128!
+        # Οτιδήποτε έχει μείνει 255, είναι ελεύθερος χώρος ΠΙΣΩ από τοίχους.
+
         sector_size_m = 0.8 
         sector_px = int(sector_size_m / res)
         total_pixels_in_sector = sector_px * sector_px
@@ -239,30 +257,28 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         best_frontier = None
         min_dist = float('inf')
 
-        # 2. Σαρώνουμε τον χάρτη τετράγωνο-τετράγωνο (ανά γειτονιά)
+        # Σαρώνουμε τον χάρτη τετράγωνο-τετράγωνο
         for y in range(0, grid.shape[0], sector_px):
             for x in range(0, grid.shape[1], sector_px):
-                # Απομονώνουμε την τρέχουσα γειτονιά (sub-matrix)
-                sector = grid[y:y+sector_px, x:x+sector_px]
+                sector_grid = grid[y:y+sector_px, x:x+sector_px]
+                sector_free = free_img[y:y+sector_px, x:x+sector_px]
 
-                # Μετράμε πόσα pixels είναι Άγνωστα (-1) και πόσα Ελεύθερα (0)
-                unknown_count = np.count_nonzero(sector == -1)
-                free_count = np.count_nonzero(sector == 0)
+                unknown_count = np.count_nonzero(sector_grid == -1)
+                
+                # [ΑΛΛΑΓΗ] Μετράμε ΜΟΝΟ τα βαμμένα (128) pixels, δηλαδή αυτά που φτάνει το ρομπότ!
+                reachable_free_count = np.count_nonzero(sector_free == 128)
 
-                # 3. Κριτήριο Γειτονιάς: 
-                # - Έχει τουλάχιστον 5% άγνωστα pixels (άρα δεν έχει εξερευνηθεί πλήρως)
-                # - Έχει τουλάχιστον 15% ελεύθερα pixels (άρα μπορούμε να πατήσουμε εκεί)
-                if unknown_count > (total_pixels_in_sector * 0.05) and free_count > (total_pixels_in_sector * 0.15):
+                if unknown_count > (total_pixels_in_sector * 0.05) and reachable_free_count > (total_pixels_in_sector * 0.15):
                     
-                    # 4. Βρίσκουμε τον στόχο: Υπολογίζουμε το κέντρο ΜΟΝΟ του ελεύθερου χώρου στη γειτονιά
-                    free_y_indices, free_x_indices = np.where(sector == 0)
+                    # Υπολογίζουμε το κέντρο ΜΟΝΟ πάνω στα προσβάσιμα pixels
+                    free_y_indices, free_x_indices = np.where(sector_free == 128)
                     cx_px = x + int(np.mean(free_x_indices))
                     cy_px = y + int(np.mean(free_y_indices))
 
                     fx = (cx_px * res) + orig_x
                     fy = (cy_px * res) + orig_y
 
-                    # --- ΑΓΝΟΗΣΕ ΤΑ BLACKLISTED ΣΥΝΟΡΑ (Μνήμη) ---
+                    # Έλεγχος Μαύρης Λίστας
                     is_blacklisted = False
                     for bx, by in self.blacklisted_frontiers:
                         if math.hypot(fx - bx, fy - by) < 0.40: 
@@ -271,13 +287,8 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                     if is_blacklisted:
                         continue
 
-                    # 5. Κρατάμε την πιο κοντινή έγκυρη γειτονιά στο ρομπότ
-                    # 5. Κρατάμε την πιο κοντινή έγκυρη γειτονιά στο ρομπότ
+                    # Έλεγχος Μυωπικής Στόχευσης (Μην στοχεύεις κάτω από τα πόδια σου)
                     dist = math.hypot(fx - rx, fy - ry)
-                    
-                    # --- ΠΡΟΣΘΗΚΗ: ΑΠΑΓΟΡΕΥΣΗ ΜΥΩΠΙΚΗΣ ΣΤΟΧΕΥΣΗΣ ---
-                    # Αν ο στόχος είναι κάτω από 50 εκατοστά, σημαίνει ότι
-                    # το ρομπότ στοχεύει τα ίδια του τα πόδια. Τον αγνοούμε!
                     if dist < 0.50:
                         continue
                         
