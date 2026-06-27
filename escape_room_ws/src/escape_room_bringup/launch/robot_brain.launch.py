@@ -72,15 +72,6 @@ def generate_launch_description():
             name='joint_state_publisher',
             output='screen'
         ),
-        
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', rviz_config_dir],
-            condition=IfCondition(use_rviz),
-            output='screen'
-        ),
         Node(
             package='escape_room_lidar',
             executable='lidar_converter',
