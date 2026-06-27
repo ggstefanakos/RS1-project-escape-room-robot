@@ -166,10 +166,26 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         }
         self.last_plan_time = 0.0
 
+        self.blacklisted_frontiers = []
+        self.last_robot_pose = None
+        self.current_target_frontier = None
+
     def update(self):
         current_time = self.node.get_clock().now().nanoseconds / 1e9
+        # --- 3. STATE: ΚΑΝΟΝΙΚΗ ΕΞΕΡΕΥΝΗΣΗ ---
         if current_time - self.last_plan_time < self.config['replanning_rate']:
             return py_trees.common.Status.RUNNING
+
+        # --- ΠΡΟΣΘΗΚΗ: ΕΛΕΓΧΟΣ ΑΝ ΤΟ ΡΟΜΠΟΤ "ΚΟΛΛΗΣΕ" ---
+        if self.last_robot_pose is not None and self.current_target_frontier is not None:
+            # Υπολογίζουμε πόσο κουνήθηκε το ρομπότ από το προηγούμενο plan
+            dist_moved = math.hypot(rx - self.last_robot_pose[0], ry - self.last_robot_pose[1])
+            
+            # Αν κουνήθηκε λιγότερο από 5 εκατοστά σε 2 δευτερόλεπτα, ο στόχος είναι άκυρος/θόρυβος!
+            if dist_moved < 0.05:  
+                self.node.get_logger().warn("🚫 Το A* απέτυχε ή το ρομπότ κόλλησε! Το σύνορο μπαίνει σε Blacklist.")
+                self.blacklisted_frontiers.append(self.current_target_frontier)
+        # ------------------------------------------------
 
         if not hasattr(self.blackboard, 'grid_map') or self.blackboard.grid_map is None:
             return py_trees.common.Status.RUNNING
@@ -210,6 +226,17 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             
             fx = (cx_px * res) + orig_x
             fy = (cy_px * res) + orig_y
+
+            # --- ΠΡΟΣΘΗΚΗ: ΑΓΝΟΗΣΕ ΤΑ BLACKLISTED ΣΥΝΟΡΑ ---
+            is_blacklisted = False
+            for bx, by in self.blacklisted_frontiers:
+                # Αν το νέο σύνορο είναι σε ακτίνα 40cm από ένα "κακό" σύνορο, αγνόησέ το
+                if math.hypot(fx - bx, fy - by) < 0.40: 
+                    is_blacklisted = True
+                    break
+            if is_blacklisted:
+                continue
+            # ------------------------------------------------
 
             dist = math.hypot(fx - rx, fy - ry)
             if dist < min_dist:
@@ -259,10 +286,14 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             msg.pose.orientation.w = 1.0
             self.goal_pub.publish(msg)
             
-            self.node.get_logger().info(f"🗺️ Ασφαλές Σύνορο βρέθηκε στα ({safe_x:.2f}, {safe_y:.2f})")
-            self.last_plan_time = current_time
+            # --- ΠΡΟΣΘΗΚΗ: ΑΠΟΘΗΚΕΥΣΗ ΓΙΑ ΤΟΝ ΕΠΟΜΕΝΟ ΕΛΕΓΧΟ ---
+            self.last_robot_pose = (rx, ry)
+            self.current_target_frontier = best_frontier
+            # ---------------------------------------------------
 
-        return py_trees.common.Status.RUNNING
+            self.node.get_logger().info(f"🗺️ Κυνηγάω ασφαλές Σύνορο στα ({safe_x:.2f}, {safe_y:.2f})")
+            self.last_plan_time = current_time
+            return py_trees.common.Status.RUNNING
 
 
 # ==========================================
