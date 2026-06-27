@@ -140,7 +140,7 @@ class LocalPlannerPID(Node):
         # --- ΕΛΕΓΧΟΣ ΑΣΦΑΛΕΙΑΣ ---
         if self.emergency_stop:
             self.get_logger().warn("🛑 ΕΜΠΟΔΙΟ! Φρενάρισμα έκτακτης ανάγκης!")
-            cmd_v = 0.0 
+            #cmd_v = 0.0 
             # Δεν πειράζουμε το cmd_w! Το ρομπότ πρέπει να μπορεί να στρίψει στο νέο plan!
 
         twist = Twist()
