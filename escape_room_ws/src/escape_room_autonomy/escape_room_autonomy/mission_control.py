@@ -225,42 +225,60 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        # --- 5. OpenCV FRONTIER ALGORITHM (ΜΕ ΦΙΛΤΡΟ ΜΑΥΡΗΣ ΛΙΣΤΑΣ) ---
-        unknown_mask = np.uint8(grid == -1) * 255
-        free_mask = np.uint8(grid == 0) * 255
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        unknown_dilated = cv2.dilate(unknown_mask, kernel, iterations=1)
-        frontier_mask = cv2.bitwise_and(free_mask, unknown_dilated)
-        contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
+        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (SECTOR-BASED EXPLORATION) ---
+        grid = self.blackboard.grid_map
+        res = self.blackboard.map_info.resolution
+        orig_x = self.blackboard.map_info.origin.position.x
+        orig_y = self.blackboard.map_info.origin.position.y
+
+        # 1. Ορίζουμε το μέγεθος της γειτονιάς σε μέτρα (π.χ. 0.8 x 0.8 μέτρα)
+        sector_size_m = 0.8 
+        sector_px = int(sector_size_m / res)
+        total_pixels_in_sector = sector_px * sector_px
+
         best_frontier = None
         min_dist = float('inf')
 
-        for contour in contours:
-            if cv2.contourArea(contour) < self.config['min_frontier_size']:
-                continue
-            
-            M = cv2.moments(contour)
-            if M["m00"] == 0: continue
-            cx_px = int(M["m10"] / M["m00"])
-            cy_px = int(M["m01"] / M["m00"])
-            
-            fx = (cx_px * res) + orig_x
-            fy = (cy_px * res) + orig_y
+        # 2. Σαρώνουμε τον χάρτη τετράγωνο-τετράγωνο (ανά γειτονιά)
+        for y in range(0, grid.shape[0], sector_px):
+            for x in range(0, grid.shape[1], sector_px):
+                # Απομονώνουμε την τρέχουσα γειτονιά (sub-matrix)
+                sector = grid[y:y+sector_px, x:x+sector_px]
 
-            # Αγνοούμε τα σύνορα που βρίσκονται κοντά στη Μαύρη Λίστα
-            is_blacklisted = False
-            for bx, by in self.blacklisted_frontiers:
-                if math.hypot(fx - bx, fy - by) < 0.40: 
-                    is_blacklisted = True
-                    break
-            if is_blacklisted:
-                continue
+                # Μετράμε πόσα pixels είναι Άγνωστα (-1) και πόσα Ελεύθερα (0)
+                unknown_count = np.count_nonzero(sector == -1)
+                free_count = np.count_nonzero(sector == 0)
 
-            dist = math.hypot(fx - rx, fy - ry)
-            if dist < min_dist:
-                min_dist = dist
-                best_frontier = (fx, fy)
+                # 3. Κριτήριο Γειτονιάς: 
+                # - Έχει τουλάχιστον 5% άγνωστα pixels (άρα δεν έχει εξερευνηθεί πλήρως)
+                # - Έχει τουλάχιστον 15% ελεύθερα pixels (άρα μπορούμε να πατήσουμε εκεί)
+                if unknown_count > (total_pixels_in_sector * 0.05) and free_count > (total_pixels_in_sector * 0.15):
+                    
+                    # 4. Βρίσκουμε τον στόχο: Υπολογίζουμε το κέντρο ΜΟΝΟ του ελεύθερου χώρου στη γειτονιά
+                    free_y_indices, free_x_indices = np.where(sector == 0)
+                    cx_px = x + int(np.mean(free_x_indices))
+                    cy_px = y + int(np.mean(free_y_indices))
+
+                    fx = (cx_px * res) + orig_x
+                    fy = (cy_px * res) + orig_y
+
+                    # --- ΑΓΝΟΗΣΕ ΤΑ BLACKLISTED ΣΥΝΟΡΑ (Μνήμη) ---
+                    is_blacklisted = False
+                    for bx, by in self.blacklisted_frontiers:
+                        if math.hypot(fx - bx, fy - by) < 0.40: 
+                            is_blacklisted = True
+                            break
+                    if is_blacklisted:
+                        continue
+
+                    # 5. Κρατάμε την πιο κοντινή έγκυρη γειτονιά στο ρομπότ
+                    dist = math.hypot(fx - rx, fy - ry)
+                    if dist < min_dist:
+                        min_dist = dist
+                        best_frontier = (fx, fy)
+
+        # --- 6. PULLBACK TARGET Η ΤΕΡΜΑΤΙΣΜΟΣ ---
+        # (Από εδώ και κάτω αφήνεις τον κώδικα όπως τον είχες!)
 
         # --- 6. SMART PULLBACK TARGET ---
         if best_frontier:
