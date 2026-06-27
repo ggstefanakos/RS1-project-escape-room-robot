@@ -272,7 +272,15 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                         continue
 
                     # 5. Κρατάμε την πιο κοντινή έγκυρη γειτονιά στο ρομπότ
+                    # 5. Κρατάμε την πιο κοντινή έγκυρη γειτονιά στο ρομπότ
                     dist = math.hypot(fx - rx, fy - ry)
+                    
+                    # --- ΠΡΟΣΘΗΚΗ: ΑΠΑΓΟΡΕΥΣΗ ΜΥΩΠΙΚΗΣ ΣΤΟΧΕΥΣΗΣ ---
+                    # Αν ο στόχος είναι κάτω από 50 εκατοστά, σημαίνει ότι
+                    # το ρομπότ στοχεύει τα ίδια του τα πόδια. Τον αγνοούμε!
+                    if dist < 0.50:
+                        continue
+                        
                     if dist < min_dist:
                         min_dist = dist
                         best_frontier = (fx, fy)
