@@ -36,7 +36,7 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
         super(InitialSpinAction, self).__init__(name)
         self.node = node
         self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
-        self.spin_duration = 30.0 # Δευτερόλεπτα (Αργή περιστροφή)
+        self.spin_duration = 10.0 # Δευτερόλεπτα (Αργή περιστροφή)
         self.start_time = None
 
     def initialise(self):
