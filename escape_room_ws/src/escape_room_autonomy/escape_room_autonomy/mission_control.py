@@ -226,51 +226,42 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_y = self.blackboard.map_info.origin.position.y
 
         # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (SECTOR-BASED EXPLORATION) ---
-        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (ΜΕ ΕΛΕΓΧΟ ΠΡΟΣΒΑΣΙΜΟΤΗΤΑΣ FLOOD FILL) ---
+        # --- 5. ΑΝΑΖΗΤΗΣΗ ΜΕ ΒΑΣΗ ΓΕΙΤΟΝΙΕΣ (ΜΕ SCORING & FLOOD FILL) ---
         grid = self.blackboard.grid_map
         res = self.blackboard.map_info.resolution
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        # Βρίσκουμε σε ποιο pixel πατάει το ρομπότ
         rob_px = int((rx - orig_x) / res)
         rob_py = int((ry - orig_y) / res)
 
-        # [ΝΕΟ] Το κόλπο του "Κουβά με Μπογιά" (Flood Fill)
-        # Δημιουργούμε μια εικόνα όπου ο ελεύθερος χώρος είναι λευκός (255)
         free_img = np.uint8(grid == 0) * 255
         h, w = free_img.shape
         ff_mask = np.zeros((h+2, w+2), np.uint8)
 
         if 0 <= rob_px < w and 0 <= rob_py < h:
-            free_img[rob_py, rob_px] = 255 # Εξασφαλίζουμε ότι πατάει σε λευκό pixel
-            # Ρίχνουμε "μπογιά" με τιμή 128 από τα πόδια του ρομπότ!
+            free_img[rob_py, rob_px] = 255 
             cv2.floodFill(free_img, ff_mask, (rob_px, rob_py), 128)
         
-        # ΣΗΜΑΝΤΙΚΟ: Τώρα, ΟΛΟΣ ο προσβάσιμος ελεύθερος χώρος έχει την τιμή 128!
-        # Οτιδήποτε έχει μείνει 255, είναι ελεύθερος χώρος ΠΙΣΩ από τοίχους.
-
         sector_size_m = 0.8 
         sector_px = int(sector_size_m / res)
         total_pixels_in_sector = sector_px * sector_px
 
         best_frontier = None
-        min_dist = float('inf')
+        # Αντί για min_dist, πλέον ψάχνουμε το ΥΨΗΛΟΤΕΡΟ ΣΚΟΡ
+        best_score = -float('inf') 
 
-        # Σαρώνουμε τον χάρτη τετράγωνο-τετράγωνο
         for y in range(0, grid.shape[0], sector_px):
             for x in range(0, grid.shape[1], sector_px):
                 sector_grid = grid[y:y+sector_px, x:x+sector_px]
                 sector_free = free_img[y:y+sector_px, x:x+sector_px]
 
                 unknown_count = np.count_nonzero(sector_grid == -1)
-                
-                # [ΑΛΛΑΓΗ] Μετράμε ΜΟΝΟ τα βαμμένα (128) pixels, δηλαδή αυτά που φτάνει το ρομπότ!
                 reachable_free_count = np.count_nonzero(sector_free == 128)
 
-                if unknown_count > (total_pixels_in_sector * 0.05) and reachable_free_count > (total_pixels_in_sector * 0.15):
+                # ΑΥΣΤΗΡΟ ΟΡΙΟ: Τουλάχιστον 25% άγνωστο (αγνοεί πλήρως τον θόρυβο κίνησης του SLAM)
+                if unknown_count > (total_pixels_in_sector * 0.25) and reachable_free_count > (total_pixels_in_sector * 0.15):
                     
-                    # Υπολογίζουμε το κέντρο ΜΟΝΟ πάνω στα προσβάσιμα pixels
                     free_y_indices, free_x_indices = np.where(sector_free == 128)
                     cx_px = x + int(np.mean(free_x_indices))
                     cy_px = y + int(np.mean(free_y_indices))
@@ -278,7 +269,6 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                     fx = (cx_px * res) + orig_x
                     fy = (cy_px * res) + orig_y
 
-                    # Έλεγχος Μαύρης Λίστας
                     is_blacklisted = False
                     for bx, by in self.blacklisted_frontiers:
                         if math.hypot(fx - bx, fy - by) < 0.40: 
@@ -287,13 +277,18 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                     if is_blacklisted:
                         continue
 
-                    # Έλεγχος Μυωπικής Στόχευσης (Μην στοχεύεις κάτω από τα πόδια σου)
                     dist = math.hypot(fx - rx, fy - ry)
-                    if dist < 1:
+                    if dist < 0.50:
                         continue
                         
-                    if dist < min_dist:
-                        min_dist = dist
+                    # Η ΜΑΓΕΙΑ ΕΔΩ (Cost Function): 
+                    # Σκορ = (Πλήθος Άγνωστων Pixels) - (Απόσταση σε μέτρα * 30.0)
+                    # Το ρομπότ "έλκεται" σαν μαγνήτης από τις μεγάλες άγνωστες περιοχές (πόρτες/έξοδοι), 
+                    # ακόμα κι αν υπάρχει λίγος θόρυβος πιο κοντά του!
+                    score = unknown_count - (dist * 30.0)
+                    
+                    if score > best_score:
+                        best_score = score
                         best_frontier = (fx, fy)
 
         # --- 6. PULLBACK TARGET Η ΤΕΡΜΑΤΙΣΜΟΣ ---
