@@ -180,7 +180,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_y = self.node.blackboard.map_info.origin.position.y
 
         free_map = np.uint8(grid == 0)
-        unknown_map = np.uint8(grid == 127)
+        unknown_map = np.uint8(grid == -1)
 
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         free_dilated = cv2.dilate(free_map, kernel, iterations=1)
