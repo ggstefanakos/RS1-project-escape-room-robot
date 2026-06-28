@@ -262,9 +262,20 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         unknown_mask = np.uint8(grid == -1) * 255
 
         # 2. Το κρίσιμο βήμα: Βρίσκουμε πού ο ΠΡΟΣΒΑΣΙΜΟΣ χώρος ΑΚΟΥΜΠΑΕΙ το άγνωστο (Πραγματικά Ανοίγματα)
+        # 1. Βρες τα εμπόδια από τον χάρτη
+        # (Υποθέτουμε ότι grid > 50 είναι τοίχος/εμπόδιο)
+        obstacle_mask = np.uint8(grid > 50) * 255
+
+        # 2. Φτιάξε μια "ζώνη ασφαλείας" γύρω από τους τοίχους
+        # Όσο μεγαλύτερο το iterations, τόσο πιο μακριά από τον τοίχο θα "σβήνει" το frontier
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        reachable_dilated = cv2.dilate(reachable_mask, kernel, iterations=1)
-        frontier_mask = cv2.bitwise_and(reachable_dilated, unknown_mask)
+        obstacle_buffer = cv2.dilate(obstacle_mask, kernel, iterations=2) 
+
+        # 3. Φτιάξε το αρχικό frontier (Free <-> Unknown)
+        frontier_raw = cv2.bitwise_and(reachable_mask, unknown_mask)
+
+        # 4. ΤΟ ΚΡΙΣΙΜΟ ΒΗΜΑ: Αφαίρεσε από το frontier οτιδήποτε πέφτει πάνω στη ζώνη ασφαλείας
+        frontier_mask = cv2.bitwise_and(frontier_raw, cv2.bitwise_not(obstacle_buffer))
 
         # 3. Εξάγουμε τα περιγράμματα αυτών των πραγματικών ανοιγμάτων
         contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
