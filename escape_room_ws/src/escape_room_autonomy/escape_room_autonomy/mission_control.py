@@ -356,6 +356,19 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             self.node.get_logger().info("🏆 Ο ΛΑΒΥΡΙΝΘΟΣ ΕΞΕΡΕΥΝΗΘΗΚΕ ΠΛΗΡΩΣ! Ενεργοποίηση πρωτοκόλλου επιστροφής...")
             self.blackboard.returning_home = True
             return py_trees.common.Status.RUNNING
+        
+    def inf_map_callback(self, msg):
+        w = msg.info.width
+        h = msg.info.height
+        
+        # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
+        inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
+        
+        # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
+        self.blackboard.inflated_grid_map = inflated_grid
+        
+        # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
+        self.blackboard.map_info = msg.info
 
 def create_root(node):
     # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
@@ -518,18 +531,6 @@ class MissionControlNode(Node):
         self.blackboard.grid_map = np.array(msg.data).reshape((height, width))
         self.blackboard.map_info = msg.info
         
-    def inf_map_callback(self, msg):
-            w = msg.info.width
-            h = msg.info.height
-            
-            # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
-            inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
-            
-            # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
-            self.blackboard.inflated_grid_map = inflated_grid
-            
-            # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
-            self.blackboard.map_info = msg.info
 def main(args=None):
     rclpy.init(args=args)
     node = MissionControlNode()
