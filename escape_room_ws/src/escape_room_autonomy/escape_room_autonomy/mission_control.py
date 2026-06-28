@@ -152,11 +152,26 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         super().__init__(name)
         self.node = node
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
+        
+        # ΠΡΟΣΘΗΚΗ: Χρειαζόμαστε το buffer για να παίρνουμε τη θέση του ρομπότ
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        
         self.last_goal = None
         self.candidates = []
         self.candidate_idx = 0
-        self.goal_sent = False # Για να ξέρουμε αν περιμένουμε απάντηση
+        self.goal_sent = False
 
+    def get_robot_pose(self):
+        """Επιστρέφει την τρέχουσα θέση (x, y) του ρομπότ στον χάρτη"""
+        try:
+            # Χρησιμοποιούμε το tf_buffer που ορίσαμε στο __init__
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            return (t.transform.translation.x, t.transform.translation.y)
+        except TransformException as e:
+            self.node.get_logger().warn(f"Δεν βρέθηκε TF: {e}")
+            return None
+        
     def update(self):
         # 1. Ανανέωση candidates αν τελείωσαν
         if not self.candidates or self.candidate_idx >= len(self.candidates):
