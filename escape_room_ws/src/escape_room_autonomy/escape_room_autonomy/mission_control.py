@@ -154,18 +154,18 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
-        self.inf_map_sub = self.node.create_subscription(
-            OccupancyGrid, 
-            '/infmap', 
-            self.inf_map_callback, 
-            10
-        )
+        # self.inf_map_sub = self.node.create_subscription(
+        #     OccupancyGrid, 
+        #     '/infmap', 
+        #     self.inf_map_callback, 
+        #     10
+        # )
 
         
         self.blackboard = py_trees.blackboard.Client(name=name)
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
-        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
+        #self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.WRITE)
 
         # CONFIGURATION
         self.config = {
@@ -230,20 +230,20 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.RUNNING
 
         # Βάζουμε έναν έλεγχο ασφαλείας σε περίπτωση που δεν έχει έρθει ακόμα ο χάρτης
-        if not hasattr(self.blackboard, 'inflated_grid_map') or self.blackboard.inflated_grid_map is None:
-            return py_trees.common.Status.RUNNING
+        # if not hasattr(self.blackboard, 'inflated_grid_map') or self.blackboard.inflated_grid_map is None:
+        #     return py_trees.common.Status.RUNNING
 
-        grid = self.blackboard.inflated_grid_map
+        # # grid = self.blackboard.inflated_grid_map
          
-        res = self.blackboard.map_info.resolution
-        orig_x = self.blackboard.map_info.origin.position.x
-        orig_y = self.blackboard.map_info.origin.position.y
-
-        # # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
-        # grid = self.blackboard.grid_map
         # res = self.blackboard.map_info.resolution
         # orig_x = self.blackboard.map_info.origin.position.x
         # orig_y = self.blackboard.map_info.origin.position.y
+
+        # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
+        grid = self.blackboard.grid_map
+        res = self.blackboard.map_info.resolution
+        orig_x = self.blackboard.map_info.origin.position.x
+        orig_y = self.blackboard.map_info.origin.position.y
 
         rob_px = int((rx - orig_x) / res)
         rob_py = int((ry - orig_y) / res)
@@ -357,18 +357,18 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             # self.blackboard.returning_home = True
             return py_trees.common.Status.RUNNING
         
-    def inf_map_callback(self, msg):
-        w = msg.info.width
-        h = msg.info.height
+    # def inf_map_callback(self, msg):
+    #     w = msg.info.width
+    #     h = msg.info.height
         
-        # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
-        inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
+    #     # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
+    #    # inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
         
-        # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
-        self.blackboard.inflated_grid_map = inflated_grid
+    #     # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
+    #     #self.blackboard.inflated_grid_map = inflated_grid
         
-        # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
-        self.blackboard.map_info = msg.info
+    #     # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
+    #     self.blackboard.map_info = msg.info
 
 def create_root(node):
     # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
