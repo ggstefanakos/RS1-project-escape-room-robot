@@ -273,6 +273,36 @@ class MissionControlNode(Node):
         self.blackboard.current_path = [] # Αρχικοποίηση με άδειο μονοπάτι
         
         # ... (υπόλοιπα)
+        self.aruco_sub = self.create_subscription(
+            Point, 
+            '/vision/detected_aruco', 
+            self.aruco_callback, 
+            10
+        )        
+
+        self.map_sub = self.create_subscription(
+            OccupancyGrid, '/map', self.map_callback, 10)
+        
+        self.marker_pub = self.create_publisher(MarkerArray, '/door_markers', 10)
+        self.cloud_pub = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
+        self.vis_timer = self.create_timer(0.5, self.publish_dynamic_obstacles)
+        
+        # ΠΡΟΣΘΗΚΗ: Δομές δεδομένων για τον υπολογισμό των πορτών
+        self.raw_door_posts = {} # Format: {door_id: [(x, y)]}
+        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες (όχι θόρυβος)
+
+        self.blackboard.grid_map = None
+        self.blackboard.map_info = None
+        
+        self.blackboard.keys_inventory = []
+        self.blackboard.discovered_doors = {}
+        self.blackboard.target_door = None
+        self.blackboard.unlocked_doors = []
+        
+        self.tree = py_trees.trees.BehaviourTree(create_root(self))
+        self.tree.setup(timeout=15)
+        
+        self.timer = self.create_timer(1.0, self.tick_tree)
 
     def path_callback(self, msg):
         # Αποθήκευση του μονοπατιού στο Blackboard
