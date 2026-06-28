@@ -192,25 +192,25 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             return py_trees.common.Status.RUNNING
 
         # --- 2. STATE: ΕΠΙΣΤΡΟΦΗ ΣΤΗ ΒΑΣΗ ---
-        if getattr(self.blackboard, 'returning_home', False):
-            dist_to_home = math.hypot(0.0 - rx, 0.0 - ry)
+        # if getattr(self.blackboard, 'returning_home', False):
+        #     dist_to_home = math.hypot(0.0 - rx, 0.0 - ry)
             
-            if dist_to_home < 0.30: 
-                self.node.get_logger().info("🏁 ΑΠΟΣΤΟΛΗ ΕΞΕΤΕΛΕΣΘΗ! Το ρομπότ επέστρεψε με ασφάλεια στη βάση.")
-                return py_trees.common.Status.SUCCESS
+        #     if dist_to_home < 0.30: 
+        #         self.node.get_logger().info("🏁 ΑΠΟΣΤΟΛΗ ΕΞΕΤΕΛΕΣΘΗ! Το ρομπότ επέστρεψε με ασφάλεια στη βάση.")
+        #         return py_trees.common.Status.SUCCESS
             
-            if current_time - self.last_plan_time > self.config['replanning_rate']:
-                msg = PoseStamped()
-                msg.header.frame_id = 'map'
-                msg.header.stamp = self.node.get_clock().now().to_msg()
-                msg.pose.position.x = 0.0
-                msg.pose.position.y = 0.0
-                msg.pose.orientation.w = 1.0
-                self.goal_pub.publish(msg)
-                self.node.get_logger().info(f"🏠 Επιστροφή στη βάση... (Απόσταση: {dist_to_home:.2f}m)")
-                self.last_plan_time = current_time
+        #     if current_time - self.last_plan_time > self.config['replanning_rate']:
+        #         msg = PoseStamped()
+        #         msg.header.frame_id = 'map'
+        #         msg.header.stamp = self.node.get_clock().now().to_msg()
+        #         msg.pose.position.x = 0.0
+        #         msg.pose.position.y = 0.0
+        #         msg.pose.orientation.w = 1.0
+        #         self.goal_pub.publish(msg)
+        #         self.node.get_logger().info(f"🏠 Επιστροφή στη βάση... (Απόσταση: {dist_to_home:.2f}m)")
+        #         self.last_plan_time = current_time
                 
-            return py_trees.common.Status.RUNNING
+        #     return py_trees.common.Status.RUNNING
 
 
         # --- 3. STATE: ΚΑΝΟΝΙΚΗ ΕΞΕΡΕΥΝΗΣΗ ---
@@ -354,7 +354,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             
         else:
             self.node.get_logger().info("🏆 Ο ΛΑΒΥΡΙΝΘΟΣ ΕΞΕΡΕΥΝΗΘΗΚΕ ΠΛΗΡΩΣ! Ενεργοποίηση πρωτοκόλλου επιστροφής...")
-            self.blackboard.returning_home = True
+            # self.blackboard.returning_home = True
             return py_trees.common.Status.RUNNING
         
     def inf_map_callback(self, msg):
