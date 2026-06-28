@@ -169,7 +169,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         # CONFIGURATION
         self.config = {
-            'min_frontier_size': 10,     
+            'min_frontier_size': 20,     
             'safe_margin_meters': 0.25,  
             'replanning_rate': 2.0       
         }
@@ -296,12 +296,12 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
             # Μυωπική στόχευση: Αγνοούμε αν είναι στα πόδια μας
             dist = math.hypot(fx - rx, fy - ry)
-            if dist < 0.50:  
+            if dist < 1:  
                 continue
                 
             # 5. ΤΟ ΣΚΟΡ: (Μέγεθος Ανοίγματος) - (Ποινή Απόστασης)
             # Έλκεται από μεγάλες πόρτες/διαδρόμους και αποφεύγει να τρέχει μακριά άσκοπα
-            score = len(contour) - (dist * 15.0)
+            score = len(contour) - (dist * 2)
             
             if score > best_score:
                 best_score = score
