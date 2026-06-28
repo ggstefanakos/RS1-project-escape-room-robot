@@ -165,7 +165,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.blackboard = py_trees.blackboard.Client(name=name)
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
         self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
-        self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.READ)
+        self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.WRITE)
 
         # CONFIGURATION
         self.config = {
