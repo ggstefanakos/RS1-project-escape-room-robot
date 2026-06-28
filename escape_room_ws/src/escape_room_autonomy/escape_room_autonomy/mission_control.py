@@ -164,22 +164,37 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             self.candidate_idx = 0
         
         if not self.candidates:
+            self.node.get_logger().warn("Δεν υπάρχουν άλλα tiles για εξερεύνηση!")
             return py_trees.common.Status.FAILURE
 
-        # 2. Έλεγχος αποτυχίας: Αν έχουμε στείλει goal και το path είναι κενό
-        # (Το 0 μήκος σημαίνει ότι ο planner δεν βρήκε διαδρομή)
+        # 2. ΕΛΕΓΧΟΣ ΑΝ ΦΤΑΣΑΜΕ ΣΤΟ GOAL (Goal Reached)
+        robot_pose = self.get_robot_pose()
+        if robot_pose and self.goal_sent:
+            current_target = self.candidates[self.candidate_idx]
+            dist = math.hypot(robot_pose[0] - current_target[0], robot_pose[1] - current_target[1])
+            
+            if dist < 0.3: # Αν είναι κοντά στο κέντρο του tile (0.3 μέτρα)
+                self.node.get_logger().info(f"📍 Φτάσαμε στο tile {self.candidate_idx+1}. Διαγραφή...")
+                self.candidates.pop(self.candidate_idx) # Αφαίρεση του tile από τη λίστα
+                self.goal_sent = False # Reset για να πάμε στο επόμενο
+                return py_trees.common.Status.RUNNING
+
+        # 3. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER
+        # Αν έχουμε στείλει goal και το path είναι κενό, το tile είναι απροσπέλαστο
         if self.goal_sent and len(self.node.blackboard.current_path) == 0:
-            self.node.get_logger().warn(f"Planner αποτυχία στο tile {self.candidate_idx}. Πάω στο επόμενο...")
-            self.candidate_idx += 1
-            self.goal_sent = False # Επαναφορά για να στείλουμε νέο goal
+            self.node.get_logger().warn(f"Planner απέτυχε στο tile {self.candidate_idx}. Πάω στο επόμενο...")
+            self.candidate_idx += 1 # Δοκίμασε το επόμενο tile της λίστας
+            self.goal_sent = False
             return py_trees.common.Status.RUNNING
 
-        # 3. Αποστολή στόχου (αν δεν έχουμε στείλει ήδη)
+        # 4. ΑΠΟΣΤΟΛΗ ΣΤΟΧΟΥ (Αν δεν έχουμε στείλει ήδη)
         if not self.goal_sent:
-            current_target = self.candidates[self.candidate_idx]
-            self.publish_goal(current_target)
-            self.goal_sent = True
-            self.node.get_logger().info(f"Αποστολή στόχου στο tile {self.candidate_idx+1}")
+            # Έλεγχος αν το tile είναι έγκυρο (sanity check)
+            if self.candidate_idx < len(self.candidates):
+                current_target = self.candidates[self.candidate_idx]
+                self.publish_goal(current_target)
+                self.goal_sent = True
+                self.node.get_logger().info(f"Αποστολή στόχου στο tile {self.candidate_idx+1}")
             
         return py_trees.common.Status.RUNNING
 
