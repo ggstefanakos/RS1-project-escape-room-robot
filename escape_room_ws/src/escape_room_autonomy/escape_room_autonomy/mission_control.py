@@ -421,18 +421,18 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         elapsed = self.node.get_clock().now().nanoseconds / 1e9 - self._nav_start_t
         return elapsed > self.NAV_TIMEOUT_SEC
 
-    def _is_blacklisted(self, wx: float, wy: float) -> bool:
+    def _is_blacklisted(self, wx: float, wy: float):
         for bx, by in self._blacklist:
             if math.hypot(wx - bx, wy - by) < self.BLACKLIST_RADIUS_M:
                 return True
         return False
 
-    def _world_to_grid(self, x: float, y: float, map_info) -> tuple[float, float]:
+    def _world_to_grid(self, x: float, y: float, map_info):
         gx = (x - map_info.origin.position.x) / map_info.resolution
         gy = (y - map_info.origin.position.y) / map_info.resolution
         return gx, gy
 
-    def _grid_to_world(self, gx: float, gy: float, map_info) -> tuple[float, float]:
+    def _grid_to_world(self, gx: float, gy: float, map_info):
         wx = gx * map_info.resolution + map_info.origin.position.x
         wy = gy * map_info.resolution + map_info.origin.position.y
         return wx, wy
