@@ -151,95 +151,107 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
     def __init__(self, name, node):
         super().__init__(name)
         self.node = node
-        # Δημιουργία publisher για το /goal_pose
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        
         self.last_goal = None
+        self.candidates = []
+        self.candidate_idx = 0
 
-    def update(self):
-        # 1. Βρες το καλύτερο frontier
-        best_frontier = self.get_best_frontier()
-        
-        if not best_frontier:
-            self.node.get_logger().warn("Δεν βρέθηκαν frontiers!")
-            return py_trees.common.Status.FAILURE
+    def get_robot_pose(self):
+        try:
+            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
+            return (t.transform.translation.x, t.transform.translation.y)
+        except TransformException:
+            return None
 
-        # 2. Αν ο στόχος είναι καινούργιος, δημοσίευσέ τον
-        if self.last_goal != best_frontier:
-            self.last_goal = best_frontier
-            self.publish_goal(best_frontier)
-            self.node.get_logger().info(f"Στάλθηκε νέος στόχος στο /goal_pose: {best_frontier}")
-            
-        return py_trees.common.Status.RUNNING
-
-    def get_best_frontier(self):
-        
-        # Η "καθαρή" λογική που φτιάξαμε πριν
+    def is_path_valid(self, start, goal):
+        """ Έλεγχος αν το goal δεν είναι μέσα σε τοίχο (απλό validation) """
         grid = self.node.blackboard.grid_map
+        if grid is None: return False
+        
         res = self.node.blackboard.map_info.resolution
         orig_x = self.node.blackboard.map_info.origin.position.x
         orig_y = self.node.blackboard.map_info.origin.position.y
-
-        free_mask_bool = (grid == 0) 
-        unknown_mask_bool = (grid == -1)
-
-        # 2. ΤΩΡΑ το μετατρέπεις ρητά σε uint8 (0 και 255)
-        # Αυτό είναι το "μαγικό" βήμα που θα διορθώσει το crash
-        free_map = np.uint8(free_mask_bool) * 255
-        unknown_map = np.uint8(unknown_mask_bool) * 255
-
-        # 3. Τώρα το OpenCV θα είναι ευτυχισμένο γιατί δέχεται uint8
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        # Εφαρμόζουμε το erode στο frontier_mask πριν το findContours
-        frontier_mask = cv2.erode(frontier_mask, kernel, iterations=1)
-
-        contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
-        best_frontier = None
-        max_size = -1
+        # Μετατροπή world σε grid coords
+        gx, gy = int((goal[0] - orig_x) / res), int((goal[1] - orig_y) / res)
+        
+        if 0 <= gx < grid.shape[1] and 0 <= gy < grid.shape[0]:
+            # Αν η τιμή είναι 100 (τοίχος) ή -1 (άγνωστο, αν δεν το θες), απόρριψε
+            if grid[gy, gx] == 100: 
+                return False
+            return True
+        return False
 
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area < 50: continue # Φιλτράρισμα πολύ μικρού θορύβου
+    def update(self):
+        # 1. Ανανέωση candidates αν τελείωσαν
+        if not self.candidates or self.candidate_idx >= len(self.candidates):
+            self.candidates = self.get_frontier_candidates()
+            self.candidate_idx = 0
+        
+        if not self.candidates:
+            return py_trees.common.Status.FAILURE
+
+        # 2. Loop για εύρεση έγκυρου στόχου
+        while self.candidate_idx < len(self.candidates):
+            current_target = self.candidates[self.candidate_idx]
             
-            # 2. SHAPE FACTOR (Compactness):
-            # Τύπος: (Περίμετρος^2 / Εμβαδόν). 
-            # Ένα κύκλος/τετράγωνο έχει μικρό νούμερο. Μια λεπτή "ακτίνα" έχει τεράστιο.
-            perimeter = cv2.arcLength(cnt, True)
-            if perimeter > 0:
-                compactness = (perimeter ** 2) / area
-                
-                # Αν είναι υπερβολικά "λεπτό" (π.χ. > 60), είναι ray, όχι frontier.
-                if compactness > 60: 
-                    continue 
-
-            # Αν περάσει τα φίλτρα, προχώρα στο scoring
-            if area > max_size:
-                max_size = area
-                M = cv2.moments(cnt)
-                if M["m00"] != 0:
-                    cx = int(M["m10"] / M["m00"])
-                    cy = int(M["m01"] / M["m00"])
-                    best_frontier = ((cx * res) + orig_x, (cy * res) + orig_y)
+            # Έλεγχος αν το path είναι εφικτό
+            robot_pose = self.get_robot_pose()
+            if robot_pose and self.is_path_valid(robot_pose, current_target):
+                # Είναι έγκυρο!
+                break
+            else:
+                self.node.get_logger().warn(f"Tile {self.candidate_idx} μη προσβάσιμο, επόμενο...")
+                self.candidate_idx += 1
         
-        return best_frontier
+        # Αν εξαντλήσαμε τη λίστα
+        if self.candidate_idx >= len(self.candidates):
+            return py_trees.common.Status.FAILURE
+
+        # 3. Δημοσίευση στόχου
+        current_target = self.candidates[self.candidate_idx]
+        if self.last_goal != current_target:
+            self.last_goal = current_target
+            self.publish_goal(current_target)
+            self.node.get_logger().info(f"Στόχος: {current_target}")
+            
+        return py_trees.common.Status.RUNNING
+
+    def get_frontier_candidates(self):
+        # (Η μέθοδος παραμένει ίδια με πριν)
+        grid = self.node.blackboard.grid_map
+        if grid is None: return []
+        res = self.node.blackboard.map_info.resolution
+        orig_x = self.node.blackboard.map_info.origin.position.x
+        orig_y = self.node.blackboard.map_info.origin.position.y
+        h, w = grid.shape
+        tile_size = 10 
+        candidates = []
+        for y in range(0, h - tile_size, tile_size):
+            for x in range(0, w - tile_size, tile_size):
+                tile = grid[y:y+tile_size, x:x+tile_size]
+                tile_arr = np.array(tile, dtype=np.int8)
+                unknown_count = np.sum(tile_arr == -1)
+                free_count = np.sum(tile_arr == 0)
+                if unknown_count > 0 and free_count > 0:
+                    free_indices = np.argwhere(tile_arr == 0)
+                    fy, fx = free_indices[0] 
+                    real_x = (x + fx) * res + orig_x
+                    real_y = (y + fy) * res + orig_y
+                    candidates.append((real_x, real_y))
+        return candidates
 
     def publish_goal(self, pose_tuple):
         goal_msg = PoseStamped()
         goal_msg.header.frame_id = 'map'
         goal_msg.header.stamp = self.node.get_clock().now().to_msg()
-        
         goal_msg.pose.position.x = pose_tuple[0]
         goal_msg.pose.position.y = pose_tuple[1]
-        goal_msg.pose.position.z = 0.0
-        
-        # Προσανατολισμός (w=1 για να κοιτάει "μπροστά" στο χάρτη)
-        goal_msg.pose.orientation.x = 0.0
-        goal_msg.pose.orientation.y = 0.0
-        goal_msg.pose.orientation.z = 0.0
         goal_msg.pose.orientation.w = 1.0
-        
         self.goal_pub.publish(goal_msg)
-
 
 def create_root(node):
     # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές

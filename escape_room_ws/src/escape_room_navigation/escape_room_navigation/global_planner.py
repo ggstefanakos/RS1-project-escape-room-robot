@@ -157,6 +157,7 @@ class AStarPlanner(Node):
             self.get_logger().info(f"✅ Path found! Length: {len(path_indices)} waypoints.")
         else:
             self.get_logger().error("❌ A* could not find a valid path.")
+            # self.publish_path([])
             
         # Καθαρισμός του goal για να περιμένει νέα εντολή
         ##self.goal_pose = None
