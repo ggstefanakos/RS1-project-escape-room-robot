@@ -152,38 +152,10 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         super().__init__(name)
         self.node = node
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self.node)
-        
         self.last_goal = None
         self.candidates = []
         self.candidate_idx = 0
-
-    def get_robot_pose(self):
-        try:
-            t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
-            return (t.transform.translation.x, t.transform.translation.y)
-        except TransformException:
-            return None
-
-    def is_path_valid(self, start, goal):
-        """ Έλεγχος αν το goal δεν είναι μέσα σε τοίχο (απλό validation) """
-        grid = self.node.blackboard.grid_map
-        if grid is None: return False
-        
-        res = self.node.blackboard.map_info.resolution
-        orig_x = self.node.blackboard.map_info.origin.position.x
-        orig_y = self.node.blackboard.map_info.origin.position.y
-        
-        # Μετατροπή world σε grid coords
-        gx, gy = int((goal[0] - orig_x) / res), int((goal[1] - orig_y) / res)
-        
-        if 0 <= gx < grid.shape[1] and 0 <= gy < grid.shape[0]:
-            # Αν η τιμή είναι 100 (τοίχος) ή -1 (άγνωστο, αν δεν το θες), απόρριψε
-            if grid[gy, gx] == 100: 
-                return False
-            return True
-        return False
+        self.goal_sent = False # Για να ξέρουμε αν περιμένουμε απάντηση
 
     def update(self):
         # 1. Ανανέωση candidates αν τελείωσαν
@@ -194,29 +166,20 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         if not self.candidates:
             return py_trees.common.Status.FAILURE
 
-        # 2. Loop για εύρεση έγκυρου στόχου
-        while self.candidate_idx < len(self.candidates):
-            current_target = self.candidates[self.candidate_idx]
-            
-            # Έλεγχος αν το path είναι εφικτό
-            robot_pose = self.get_robot_pose()
-            if robot_pose and self.is_path_valid(robot_pose, current_target):
-                # Είναι έγκυρο!
-                break
-            else:
-                self.node.get_logger().warn(f"Tile {self.candidate_idx} μη προσβάσιμο, επόμενο...")
-                self.candidate_idx += 1
-        
-        # Αν εξαντλήσαμε τη λίστα
-        if self.candidate_idx >= len(self.candidates):
-            return py_trees.common.Status.FAILURE
+        # 2. Έλεγχος αποτυχίας: Αν έχουμε στείλει goal και το path είναι κενό
+        # (Το 0 μήκος σημαίνει ότι ο planner δεν βρήκε διαδρομή)
+        if self.goal_sent and len(self.node.blackboard.current_path) == 0:
+            self.node.get_logger().warn(f"Planner αποτυχία στο tile {self.candidate_idx}. Πάω στο επόμενο...")
+            self.candidate_idx += 1
+            self.goal_sent = False # Επαναφορά για να στείλουμε νέο goal
+            return py_trees.common.Status.RUNNING
 
-        # 3. Δημοσίευση στόχου
-        current_target = self.candidates[self.candidate_idx]
-        if self.last_goal != current_target:
-            self.last_goal = current_target
+        # 3. Αποστολή στόχου (αν δεν έχουμε στείλει ήδη)
+        if not self.goal_sent:
+            current_target = self.candidates[self.candidate_idx]
             self.publish_goal(current_target)
-            self.node.get_logger().info(f"Στόχος: {current_target}")
+            self.goal_sent = True
+            self.node.get_logger().info(f"Αποστολή στόχου στο tile {self.candidate_idx+1}")
             
         return py_trees.common.Status.RUNNING
 
@@ -282,48 +245,27 @@ def create_root(node):
     
     return root
 
+# Πρόσθεσε το import για το Path αν λείπει
+from nav_msgs.msg import Path
+
 class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
+        # ... (υπάρχοντα subscriptions)
         
-        self.aruco_sub = self.create_subscription(
-            Point, 
-            '/vision/detected_aruco', 
-            self.aruco_callback, 
-            10
-        )
-        self.map_sub = self.create_subscription(
-            OccupancyGrid, '/map', self.map_callback, 10)
+        # ΠΡΟΣΘΗΚΗ: Subscription στο /plan
+        self.path_sub = self.create_subscription(Path, '/plan', self.path_callback, 10)
         
-        self.marker_pub = self.create_publisher(MarkerArray, '/door_markers', 10)
-        self.cloud_pub = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
-        self.vis_timer = self.create_timer(0.5, self.publish_dynamic_obstacles)
+        # ΠΡΟΣΘΗΚΗ στο blackboard
+        self.blackboard.register_key(key="current_path", access=py_trees.common.Access.WRITE)
+        self.blackboard.current_path = [] # Αρχικοποίηση με άδειο μονοπάτι
         
-        # ΠΡΟΣΘΗΚΗ: Δομές δεδομένων για τον υπολογισμό των πορτών
-        self.raw_door_posts = {} # Format: {door_id: [(x, y)]}
-        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες (όχι θόρυβος)
+        # ... (υπόλοιπα)
 
-        self.blackboard = py_trees.blackboard.Client(name="Master")
-        self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
-
-        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
-        self.blackboard.grid_map = None
-        self.blackboard.map_info = None
+    def path_callback(self, msg):
+        # Αποθήκευση του μονοπατιού στο Blackboard
+        self.blackboard.current_path = msg.poses
         
-        self.blackboard.keys_inventory = []
-        self.blackboard.discovered_doors = {}
-        self.blackboard.target_door = None
-        self.blackboard.unlocked_doors = []
-        
-        self.tree = py_trees.trees.BehaviourTree(create_root(self))
-        self.tree.setup(timeout=15)
-        
-        self.timer = self.create_timer(1.0, self.tick_tree)
-
     def aruco_callback(self, msg):
         detected_id = int(msg.z) 
         x = float(msg.x)
