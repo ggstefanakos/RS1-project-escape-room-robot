@@ -213,9 +213,9 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         unique_vals = np.unique(grid)
         self.node.get_logger().info(f"DEBUG: Τιμές στο grid: {unique_vals}")
 
-        # Έλεγχος για το unknown (δοκίμασε και με 127 και με άλλες τιμές αν δεις στο log)
-        unknown_mask = np.int8(grid == 127) * 255
-        self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels: {np.sum(unknown_mask > 0)}")
+        
+        num_unknown = np.sum(unknown_mask_bool)
+        self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels βρέθηκαν: {num_unknown}")
 
         free_map = np.int8(grid == 0) * 255
         self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
