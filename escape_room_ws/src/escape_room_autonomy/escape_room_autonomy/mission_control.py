@@ -179,11 +179,19 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.node.blackboard.map_info.origin.position.x
         orig_y = self.node.blackboard.map_info.origin.position.y
 
-        free_map = np.int8(grid == 0)
-        unknown_map = np.int8(grid == -1)
+        free_mask_bool = (grid == 0) 
+        unknown_mask_bool = (grid == -1)
 
+        # 2. ΤΩΡΑ το μετατρέπεις ρητά σε uint8 (0 και 255)
+        # Αυτό είναι το "μαγικό" βήμα που θα διορθώσει το crash
+        free_map = np.uint8(free_mask_bool) * 255
+        unknown_map = np.uint8(unknown_mask_bool) * 255
+
+        # 3. Τώρα το OpenCV θα είναι ευτυχισμένο γιατί δέχεται uint8
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         free_dilated = cv2.dilate(free_map, kernel, iterations=1)
+
+        # 4. Συνέχισε κανονικά με το bitwise_and
         frontier_mask = cv2.bitwise_and(free_dilated, unknown_map)
 
         contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
