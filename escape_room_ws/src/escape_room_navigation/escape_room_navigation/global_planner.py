@@ -56,6 +56,7 @@ class AStarPlanner(Node):
         inflated_map = cv2.dilate(obstacle_map, kernel, iterations=1)
         
         self.grid_map = inflated_map
+        self.publish_inflated_map(self.grid_map, msg.info)
         self.get_logger().info("Map received and inflated!")
         self.try_plan()
 
@@ -225,22 +226,22 @@ class AStarPlanner(Node):
             
         self.path_pub.publish(msg)
 
-def publish_inflated_map(self, inflated_grid, original_map_info):
-        """
-        Παίρνει το 2D numpy array (inflated_grid) και τις πληροφορίες 
-        του αρχικού χάρτη (resolution, width, height, origin) και τα στέλνει.
-        """
-        inf_msg = OccupancyGrid()
-        inf_msg.header.stamp = self.get_clock().now().to_msg()
-        inf_msg.header.frame_id = 'map'
-        inf_msg.info = original_map_info
-        
-        # Το ROS 2 OccupancyGrid απαιτεί μια μονοδιάστατη λίστα (1D) από int8.
-        # Οπότε κάνουμε flatten() τον 2D πίνακα και τον μετατρέπουμε.
-        inf_msg.data = inflated_grid.flatten().astype(np.int8).tolist()
-        
-        self.inf_map_pub.publish(inf_msg)
-        self.get_logger().info("Δημοσιεύτηκε ο Inflated Map στο /infmap")
+    def publish_inflated_map(self, inflated_grid, original_map_info):
+            """
+            Παίρνει το 2D numpy array (inflated_grid) και τις πληροφορίες 
+            του αρχικού χάρτη (resolution, width, height, origin) και τα στέλνει.
+            """
+            inf_msg = OccupancyGrid()
+            inf_msg.header.stamp = self.get_clock().now().to_msg()
+            inf_msg.header.frame_id = 'map'
+            inf_msg.info = original_map_info
+            
+            # Το ROS 2 OccupancyGrid απαιτεί μια μονοδιάστατη λίστα (1D) από int8.
+            # Οπότε κάνουμε flatten() τον 2D πίνακα και τον μετατρέπουμε.
+            inf_msg.data = inflated_grid.flatten().astype(np.int8).tolist()
+            
+            self.inf_map_pub.publish(inf_msg)
+            self.get_logger().info("Δημοσιεύτηκε ο Inflated Map στο /infmap")
 
 def main(args=None):
     rclpy.init(args=args)

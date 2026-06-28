@@ -38,12 +38,6 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
         self.cmd_pub = self.node.create_publisher(Twist, '/cmd_vel', 10)
         self.spin_duration = 13.0 # Δευτερόλεπτα (Αργή περιστροφή)
         self.start_time = None
-        self.inf_map_sub = self.create_subscription(
-            OccupancyGrid, 
-            '/infmap', 
-            self.inf_map_callback, 
-            10
-        )
 
     def initialise(self):
         self.start_time = self.node.get_clock().now().nanoseconds / 1e9
@@ -159,6 +153,14 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
+        
+        self.inf_map_sub = self.create_subscription(
+            OccupancyGrid, 
+            '/infmap', 
+            self.inf_map_callback, 
+            10
+        )
+
         
         self.blackboard = py_trees.blackboard.Client(name=name)
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
@@ -514,18 +516,19 @@ class MissionControlNode(Node):
         height = msg.info.height
         self.blackboard.grid_map = np.array(msg.data).reshape((height, width))
         self.blackboard.map_info = msg.info
-def inf_map_callback(self, msg):
-        w = msg.info.width
-        h = msg.info.height
         
-        # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
-        inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
-        
-        # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
-        self.blackboard.inflated_grid_map = inflated_grid
-        
-        # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
-        self.blackboard.map_info = msg.info
+    def inf_map_callback(self, msg):
+            w = msg.info.width
+            h = msg.info.height
+            
+            # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
+            inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
+            
+            # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
+            self.blackboard.inflated_grid_map = inflated_grid
+            
+            # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
+            self.blackboard.map_info = msg.info
 def main(args=None):
     rclpy.init(args=args)
     node = MissionControlNode()
