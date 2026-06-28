@@ -165,6 +165,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.blackboard = py_trees.blackboard.Client(name=name)
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
         self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
+        self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.READ)
 
         # CONFIGURATION
         self.config = {
@@ -238,11 +239,11 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.blackboard.map_info.origin.position.x
         orig_y = self.blackboard.map_info.origin.position.y
 
-        # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
-        grid = self.blackboard.grid_map
-        res = self.blackboard.map_info.resolution
-        orig_x = self.blackboard.map_info.origin.position.x
-        orig_y = self.blackboard.map_info.origin.position.y
+        # # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
+        # grid = self.blackboard.grid_map
+        # res = self.blackboard.map_info.resolution
+        # orig_x = self.blackboard.map_info.origin.position.x
+        # orig_y = self.blackboard.map_info.origin.position.y
 
         rob_px = int((rx - orig_x) / res)
         rob_py = int((ry - orig_y) / res)
