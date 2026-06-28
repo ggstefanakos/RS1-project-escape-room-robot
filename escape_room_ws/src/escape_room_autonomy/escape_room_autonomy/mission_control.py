@@ -211,6 +211,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         free_map = np.uint8(grid == 0) * 255
         self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
+        self.node.get_logger().info(f"DEBUG: Το grid είναι τύπου: {grid.dtype}")
         return best_frontier
 
     def publish_goal(self, pose_tuple):
