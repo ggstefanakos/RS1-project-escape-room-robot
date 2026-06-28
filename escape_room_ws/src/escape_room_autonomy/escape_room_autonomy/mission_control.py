@@ -398,7 +398,7 @@ class MissionControlNode(Node):
     def map_callback(self, msg):
         width = msg.info.width
         height = msg.info.height
-        self.blackboard.grid_map = np.array(msg.data).reshape((height, width))
+        self.blackboard.grid_map = np.array(msg.data, dtype=np.int8).reshape((height, width))
         self.blackboard.map_info = msg.info
         
 def main(args=None):
