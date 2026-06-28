@@ -172,15 +172,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         return py_trees.common.Status.RUNNING
 
     def get_best_frontier(self):
-        unique_vals = np.unique(grid)
-        self.node.get_logger().info(f"DEBUG: Τιμές στο grid: {unique_vals}")
-
-        # Έλεγχος για το unknown (δοκίμασε και με 127 και με άλλες τιμές αν δεις στο log)
-        unknown_mask = np.uint8(grid == 127) * 255
-        self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels: {np.sum(unknown_mask > 0)}")
-
-        free_map = np.uint8(grid == 0) * 255
-        self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
+        
         # Η "καθαρή" λογική που φτιάξαμε πριν
         grid = self.node.blackboard.grid_map
         res = self.node.blackboard.map_info.resolution
@@ -209,6 +201,16 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                     cy = int(M["m01"] / M["m00"])
                     best_frontier = ((cx * res) + orig_x, (cy * res) + orig_y)
         
+
+        unique_vals = np.unique(grid)
+        self.node.get_logger().info(f"DEBUG: Τιμές στο grid: {unique_vals}")
+
+        # Έλεγχος για το unknown (δοκίμασε και με 127 και με άλλες τιμές αν δεις στο log)
+        unknown_mask = np.uint8(grid == 127) * 255
+        self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels: {np.sum(unknown_mask > 0)}")
+
+        free_map = np.uint8(grid == 0) * 255
+        self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
         return best_frontier
 
     def publish_goal(self, pose_tuple):
