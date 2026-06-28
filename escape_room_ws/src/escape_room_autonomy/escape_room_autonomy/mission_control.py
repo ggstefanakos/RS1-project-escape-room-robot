@@ -9,7 +9,7 @@ import py_trees
 import time
 import math
 from geometry_msgs.msg import Twist
-from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import OccupancyGrid, Path   # <-- Προσθήκη: Path
 import numpy as np
 import cv2
 from visualization_msgs.msg import Marker, MarkerArray
@@ -46,27 +46,16 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
     def update(self):
         current_time = self.node.get_clock().now().nanoseconds / 1e9
         if current_time - self.start_time < self.spin_duration:
-            # Δημιουργία καθαρού μηνύματος
             msg = Twist()
-            msg.linear.x = 0.0
-            msg.linear.y = 0.0
-            msg.linear.z = 0.0
-            msg.angular.x = 0.0
-            msg.angular.y = 0.0
             msg.angular.z = 0.09
-            
             self.cmd_pub.publish(msg)
             return py_trees.common.Status.RUNNING
         else:
-            # Φρένο - επίσης καθαρό
-            stop_msg = Twist()
-            # Τα float είναι από default 0.0, αλλά για σιγουριά:
-            stop_msg.linear.x = 0.0
-            stop_msg.angular.z = 0.0
-            
-            self.cmd_pub.publish(stop_msg)
+            self.cmd_pub.publish(Twist())
             self.node.get_logger().info("✅ Το 360 Spin ολοκληρώθηκε!")
             return py_trees.common.Status.SUCCESS
+
+
 class CheckForUnlockableDoor(py_trees.behaviour.Behaviour):
     def __init__(self, name):
         super(CheckForUnlockableDoor, self).__init__(name)
@@ -78,17 +67,16 @@ class CheckForUnlockableDoor(py_trees.behaviour.Behaviour):
     def update(self):
         for door_id, door_coords in self.blackboard.discovered_doors.items():
             required_key = KEY_DOOR_MATCHES.get(door_id)
-            
             if required_key in self.blackboard.keys_inventory:
                 self.blackboard.target_door = {
-                    "door_id": door_id, 
-                    "key_id": required_key, 
-                    "x": door_coords[0], 
+                    "door_id": door_id,
+                    "key_id": required_key,
+                    "x": door_coords[0],
                     "y": door_coords[1]
                 }
                 return py_trees.common.Status.SUCCESS
-                
         return py_trees.common.Status.FAILURE
+
 
 class UnlockDoorAction(py_trees.behaviour.Behaviour):
     def __init__(self, name, node):
@@ -97,12 +85,11 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
-        
+
         self.blackboard = py_trees.blackboard.Client(name=name)
         self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
-        # ΠΡΟΣΘΗΚΗ: Μνήμη για τις πόρτες που ανοίξαμε
         self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
 
     def initialise(self):
@@ -130,342 +117,411 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
 
             if dist < 0.20:
                 self.node.get_logger().info(f">>> ✨ ΞΕΚΛΕΙΔΩΣΑ ΤΗΝ ΠΟΡΤΑ {self.target['door_id']}! 🔓 <<<")
-                
                 self.blackboard.keys_inventory.remove(self.target['key_id'])
                 del self.blackboard.discovered_doors[self.target['door_id']]
-                
-                # Καταγράφουμε ότι άνοιξε για να την αγνοεί η κάμερα στο μέλλον
                 self.blackboard.unlocked_doors.append(self.target['door_id'])
                 self.blackboard.target_door = None
-                
                 return py_trees.common.Status.SUCCESS
             else:
                 self.node.get_logger().info(f"Πλησιάζω Κέντρο Πόρτας {self.target['door_id']}... Απόσταση: {dist:.2f}m")
                 return py_trees.common.Status.RUNNING
-                
+
         except TransformException:
             return py_trees.common.Status.RUNNING
 
+
+# ==========================================
+# 2. FRONTIER EXPLORATION BEHAVIOUR
+# ==========================================
+
 class ExploreMazeAction(py_trees.behaviour.Behaviour):
+    """
+    Frontier-based maze exploration ως py_trees Behaviour.
+
+    Αλγόριθμος:
+    1. Ανάγνωση χάρτη από το Blackboard (grid_map, map_info).
+    2. Ανίχνευση frontier cells: ελεύθερα κελιά (==0) που γειτνιάζουν με άγνωστα (==-1).
+    3. Ομαδοποίηση frontiers σε clusters (cv2.connectedComponents).
+    4. Επιλογή καλύτερου cluster: score = distance / sqrt(size).
+    5. Αποστολή goal στον A* Planner (/goal_pose).
+    6. Αναμονή — αν επιτευχθεί ο στόχος → επανάληψη.
+       Αν timeout → blacklist του frontier και δοκιμή επόμενου.
+    7. Επιστρέφει SUCCESS όταν δεν βρεθούν άλλα frontiers.
+
+    Topics που χρησιμοποιεί:
+        SUB: /est_pos       (PoseStamped) – εκτιμώμενη θέση από EKF SLAM
+        SUB: /plan          (Path)        – άδειο path = goal reached (από A* Planner)
+        PUB: /goal_pose     (PoseStamped) – εντολή στόχου για τον A* Planner
+
+    Blackboard keys (READ):
+        grid_map  – np.ndarray (height × width), τιμές: 0=free, 100=wall, -1=unknown
+        map_info  – nav_msgs/MapMetaData (resolution, origin, κλπ.)
+    """
+
+    # ── Παράμετροι εξερεύνησης ──────────────────────────────────────────────
+    MIN_FRONTIER_SIZE  = 5    # ελάχιστο μέγεθος cluster σε pixels για να ληφθεί υπόψη
+    NAV_TIMEOUT_SEC    = 35.0 # δευτερόλεπτα πλοήγησης πριν blacklist
+    GOAL_TOLERANCE_M   = 0.40 # μέτρα — απόσταση "goal reached"
+    BLACKLIST_RADIUS_M = 0.60 # μέτρα — ζώνη γύρω από μη-προσβάσιμο frontier
+
     def __init__(self, name, node):
         super(ExploreMazeAction, self).__init__(name)
         self.node = node
+
+        # --- Publishers / Subscribers ---
         self.goal_pub = self.node.create_publisher(PoseStamped, '/goal_pose', 10)
-        self.tf_buffer = Buffer()
-        self.tf_listener = TransformListener(self.tf_buffer, self.node)
-        
-        # self.inf_map_sub = self.node.create_subscription(
-        #     OccupancyGrid, 
-        #     '/infmap', 
-        #     self.inf_map_callback, 
-        #     10
-        # )
 
-        
-        self.blackboard = py_trees.blackboard.Client(name=name)
-        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.READ)
-        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.READ)
-        #self.blackboard.register_key(key="inflated_grid_map", access=py_trees.common.Access.WRITE)
+        # Θέση ρομπότ από EKF SLAM (αντί για TF lookup)
+        self.current_pose = None
+        self.pos_sub = self.node.create_subscription(
+            PoseStamped, '/est_pos', self._pos_callback, 10
+        )
 
-        # CONFIGURATION
-        self.config = {
-            'min_frontier_size': 20,     
-            'safe_margin_meters': 0.25,  
-            'replanning_rate': 2.0       
-        }
-        self.last_plan_time = 0.0
-        
-        # ΜΝΗΜΗ ΜΑΥΡΗΣ ΛΙΣΤΑΣ ΓΙΑ ΤΟΝ ΘΟΡΥΒΟ
-        self.blacklisted_frontiers = []
-        self.last_robot_pose = None
-        self.current_target_frontier = None
+        # Ακούμε τον A* Planner: στέλνει κενό path όταν ο στόχος επιτευχθεί
+        self.path_empty_received = False
+        self.path_sub = self.node.create_subscription(
+            Path, '/plan', self._path_callback, 10
+        )
 
-    def update(self):
-        current_time = self.node.get_clock().now().nanoseconds / 1e9
-        
-        # --- 1. Διαβάζουμε τη θέση του Ρομπότ ΠΡΩΤΑ ΑΠ' ΟΛΑ ---
-        try:
-            t = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
-            rx = t.transform.translation.x
-            ry = t.transform.translation.y
-        except TransformException:
+        # --- Blackboard ---
+        self.blackboard = py_trees.blackboard.Client(name=name + "_explore")
+        self.blackboard.register_key(key="grid_map",  access=py_trees.common.Access.READ)
+        self.blackboard.register_key(key="map_info",  access=py_trees.common.Access.READ)
+
+        # --- Εσωτερική Κατάσταση ---
+        # 'FIND'     : αναζήτηση επόμενου frontier
+        # 'NAVIGATE' : εν κινήσει προς frontier
+        self._nav_state  = 'FIND'
+        self._current_goal = None       # (world_x, world_y) του τρέχοντος στόχου
+        self._blacklist    = []         # [(world_x, world_y)] – μη-προσβάσιμα frontiers
+        self._nav_start_t  = None       # χρόνος έναρξης πλοήγησης (seconds)
+
+    # ── Callbacks ─────────────────────────────────────────────────────────────
+
+    def _pos_callback(self, msg: PoseStamped):
+        self.current_pose = msg.pose.position
+
+    def _path_callback(self, msg: Path):
+        """
+        Ο A* Planner στέλνει κενό Path όταν φτάσουμε στον στόχο.
+        Το χρησιμοποιούμε σαν αξιόπιστο σήμα "goal reached".
+        """
+        if len(msg.poses) == 0 and self._nav_state == 'NAVIGATE':
+            self.path_empty_received = True
+
+    # ── py_trees lifecycle ─────────────────────────────────────────────────────
+
+    def initialise(self):
+        """
+        Καλείται κάθε φορά που το behaviour ξεκινά από μη-RUNNING κατάσταση.
+        Διατηρούμε το blacklist ώστε να μην ξαναπάμε σε μη-προσβάσιμα frontiers
+        αν το behaviour διακόπηκε προσωρινά από το UnlockDoor.
+        """
+        self.node.get_logger().info("🔍 [EXPLORE] Ξεκινώ εξερεύνηση λαβυρίνθου...")
+        self._nav_state         = 'FIND'
+        self._current_goal      = None
+        self._nav_start_t       = None
+        self.path_empty_received = False
+
+    def update(self) -> py_trees.common.Status:
+        """
+        Καλείται κάθε tick (1 sec). Κεντρική λογική state machine:
+          NAVIGATE → ελέγχουμε αν φτάσαμε ή αν κολλήσαμε
+          FIND     → βρίσκουμε και στέλνουμε νέο frontier
+        """
+        grid_map = self.blackboard.grid_map
+        map_info = self.blackboard.map_info
+
+        if grid_map is None or map_info is None:
+            self.node.get_logger().warn("[EXPLORE] Αναμονή χάρτη...")
             return py_trees.common.Status.RUNNING
 
-        # --- 2. STATE: ΕΠΙΣΤΡΟΦΗ ΣΤΗ ΒΑΣΗ ---
-        # if getattr(self.blackboard, 'returning_home', False):
-        #     dist_to_home = math.hypot(0.0 - rx, 0.0 - ry)
-            
-        #     if dist_to_home < 0.30: 
-        #         self.node.get_logger().info("🏁 ΑΠΟΣΤΟΛΗ ΕΞΕΤΕΛΕΣΘΗ! Το ρομπότ επέστρεψε με ασφάλεια στη βάση.")
-        #         return py_trees.common.Status.SUCCESS
-            
-        #     if current_time - self.last_plan_time > self.config['replanning_rate']:
-        #         msg = PoseStamped()
-        #         msg.header.frame_id = 'map'
-        #         msg.header.stamp = self.node.get_clock().now().to_msg()
-        #         msg.pose.position.x = 0.0
-        #         msg.pose.position.y = 0.0
-        #         msg.pose.orientation.w = 1.0
-        #         self.goal_pub.publish(msg)
-        #         self.node.get_logger().info(f"🏠 Επιστροφή στη βάση... (Απόσταση: {dist_to_home:.2f}m)")
-        #         self.last_plan_time = current_time
-                
-        #     return py_trees.common.Status.RUNNING
-
-
-        # --- 3. STATE: ΚΑΝΟΝΙΚΗ ΕΞΕΡΕΥΝΗΣΗ ---
-        if current_time - self.last_plan_time < self.config['replanning_rate']:
+        if self.current_pose is None:
+            self.node.get_logger().warn("[EXPLORE] Αναμονή θέσης ρομπότ (/est_pos)...")
             return py_trees.common.Status.RUNNING
 
-        # --- 4. ΕΛΕΓΧΟΣ ΑΝ ΤΟ ΡΟΜΠΟΤ "ΚΟΛΛΗΣΕ" (Stuck Detection) ---
-        # Τώρα τα rx, ry υπάρχουν εγγυημένα και το error έχει εξαφανιστεί!
-        # if self.last_robot_pose is not None and self.current_target_frontier is not None:
-        #     dist_moved = math.hypot(rx - self.last_robot_pose[0], ry - self.last_robot_pose[1])
-            
-        #     if dist_moved < 0.05:  
-        #         self.node.get_logger().warn("🚫 Το A* απέτυχε ή το ρομπότ κόλλησε! Το σύνορο μπαίνει σε Blacklist.")
-        #         self.blacklisted_frontiers.append(self.current_target_frontier)
+        # ── Κατάσταση NAVIGATE ───────────────────────────────────────────────
+        if self._nav_state == 'NAVIGATE':
+            if self._is_goal_reached() or self.path_empty_received:
+                # ✅ Φτάσαμε!
+                self.node.get_logger().info("✅ [EXPLORE] Frontier επιτεύχθηκε! Ψάχνω επόμενο...")
+                self._nav_state         = 'FIND'
+                self._current_goal      = None
+                self._nav_start_t       = None
+                self.path_empty_received = False
+                # Δεν κάνουμε return — αμέσως ψάχνουμε για επόμενο frontier
 
-        if not hasattr(self.blackboard, 'grid_map') or self.blackboard.grid_map is None:
-            return py_trees.common.Status.RUNNING
+            elif self._is_navigation_timed_out():
+                # ⚠️ Κολλήσαμε — προσθέτουμε στο blacklist
+                self.node.get_logger().warn(
+                    f"⚠️ [EXPLORE] Timeout ({self.NAV_TIMEOUT_SEC}s) για frontier "
+                    f"({self._current_goal[0]:.2f}, {self._current_goal[1]:.2f}). "
+                    f"Blacklisting και δοκιμή επόμενου..."
+                )
+                if self._current_goal:
+                    self._blacklist.append(self._current_goal)
+                self._nav_state         = 'FIND'
+                self._current_goal      = None
+                self._nav_start_t       = None
+                self.path_empty_received = False
+                # Δεν κάνουμε return — αμέσως ψάχνουμε για επόμενο frontier
 
-        # Βάζουμε έναν έλεγχο ασφαλείας σε περίπτωση που δεν έχει έρθει ακόμα ο χάρτης
-        # if not hasattr(self.blackboard, 'inflated_grid_map') or self.blackboard.inflated_grid_map is None:
-        #     return py_trees.common.Status.RUNNING
-
-        # # grid = self.blackboard.inflated_grid_map
-         
-        # res = self.blackboard.map_info.resolution
-        # orig_x = self.blackboard.map_info.origin.position.x
-        # orig_y = self.blackboard.map_info.origin.position.y
-
-        # --- 5. ΕΥΡΕΣΗ ΠΡΑΓΜΑΤΙΚΩΝ ΣΥΝΟΡΩΝ (ΜΕ FLOOD FILL ΚΑΙ SCORING) ---
-        grid = self.blackboard.grid_map
-        res = self.blackboard.map_info.resolution
-        orig_x = self.blackboard.map_info.origin.position.x
-        orig_y = self.blackboard.map_info.origin.position.y
-
-        rob_px = int((rx - orig_x) / res)
-        rob_py = int((ry - orig_y) / res)
-
-        # 1. Βρίσκουμε τον ΠΡΟΣΒΑΣΙΜΟ ελεύθερο χώρο ρίχνοντας "μπογιά" από το ρομπότ (Flood Fill)
-        free_img = np.uint8(grid == 0) * 255
-        h, w = free_img.shape
-        ff_mask = np.zeros((h+2, w+2), np.uint8)
-
-        if 0 <= rob_px < w and 0 <= rob_py < h:
-            free_img[rob_py, rob_px] = 255 
-            cv2.floodFill(free_img, ff_mask, (rob_px, rob_py), 128)
-        
-        # Κρατάμε ΜΟΝΟ τα pixels που έφτασε η μπογιά
-        reachable_mask = np.uint8(free_img == 128) * 255
-        unknown_mask = np.uint8(grid == -1) * 255
-
-        # 2. Το κρίσιμο βήμα: Βρίσκουμε πού ο ΠΡΟΣΒΑΣΙΜΟΣ χώρος ΑΚΟΥΜΠΑΕΙ το άγνωστο (Πραγματικά Ανοίγματα)
-        # 1. Βρες τα εμπόδια από τον χάρτη
-        # (Υποθέτουμε ότι grid > 50 είναι τοίχος/εμπόδιο)
-        obstacle_mask = np.uint8(grid > 50) * 255
-
-        # 2. Φτιάξε μια "ζώνη ασφαλείας" γύρω από τους τοίχους
-        # Όσο μεγαλύτερο το iterations, τόσο πιο μακριά από τον τοίχο θα "σβήνει" το frontier
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        obstacle_buffer = cv2.dilate(obstacle_mask, kernel, iterations=1) 
-
-        # 3. Φτιάξε το αρχικό frontier (Free <-> Unknown)
-        frontier_raw = cv2.bitwise_and(reachable_mask, unknown_mask)
-
-        # 4. ΤΟ ΚΡΙΣΙΜΟ ΒΗΜΑ: Αφαίρεσε από το frontier οτιδήποτε πέφτει πάνω στη ζώνη ασφαλείας
-        frontier_mask = cv2.bitwise_and(frontier_raw, cv2.bitwise_not(obstacle_buffer))
-
-        # 3. Εξάγουμε τα περιγράμματα αυτών των πραγματικών ανοιγμάτων
-        contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        
-        best_frontier = None
-        best_score = -float('inf')
-
-        for contour in contours:
-            # 4. ΑΓΝΟΟΥΜΕ ΤΟΝ ΘΟΡΥΒΟ: Αν το άνοιγμα είναι κάτω από 15 pixels, είναι απλά θόρυβος του SLAM
-            if len(contour) < 15:
-                continue
-            
-            M = cv2.moments(contour)
-            if M["m00"] == 0: continue
-            cx_px = int(M["m10"] / M["m00"])
-            cy_px = int(M["m01"] / M["m00"])
-            
-            fx = (cx_px * res) + orig_x
-            fy = (cy_px * res) + orig_y
-
-            # Έλεγχος Μαύρης Λίστας
-            is_blacklisted = False
-            for bx, by in self.blacklisted_frontiers:
-                if math.hypot(fx - bx, fy - by) < 0.40: 
-                    is_blacklisted = True
-                    break
-            if is_blacklisted:
-                continue
-
-            # Μυωπική στόχευση: Αγνοούμε αν είναι στα πόδια μας
-            dist = math.hypot(fx - rx, fy - ry)
-            if dist < 1:  
-                continue
-                
-            # 5. ΤΟ ΣΚΟΡ: (Μέγεθος Ανοίγματος) - (Ποινή Απόστασης)
-            # Έλκεται από μεγάλες πόρτες/διαδρόμους και αποφεύγει να τρέχει μακριά άσκοπα
-            score = len(contour) - (dist * 2)
-            
-            if score > best_score:
-                best_score = score
-                best_frontier = (fx, fy)
-
-        # --- 6. PULLBACK TARGET Η ΤΕΡΜΑΤΙΣΜΟΣ ---
-        # (Από εδώ και κάτω αφήνεις τον κώδικα όπως τον είχες!)
-
-        # --- 6. SMART PULLBACK TARGET ---
-        if best_frontier:
-            fx, fy = best_frontier
-            angle_to_robot = math.atan2(ry - fy, rx - fx)
-            
-            safe_x, safe_y = fx, fy
-            found_safe_spot = False
-            
-            for step in range(1, 20):  
-                margin = step * 0.05
-                test_x = fx + math.cos(angle_to_robot) * margin
-                test_y = fy + math.sin(angle_to_robot) * margin
-                px = int((test_x - orig_x) / res)
-                py = int((test_y - orig_y) / res)
-                
-                if 0 <= px < grid.shape[1] and 0 <= py < grid.shape[0]:
-                    if grid[py, px] == 0: 
-                        safe_x = test_x
-                        safe_y = test_y
-                        found_safe_spot = True
-                        break 
-                        
-            if not found_safe_spot:
-                self.node.get_logger().warn("⚠️ Το σύνορο είναι εγκλωβισμένο. Το αγνοώ προσωρινά.")
+            else:
+                # 🚀 Εν κινήσει — δεν χρειάζεται να κάνουμε τίποτα
                 return py_trees.common.Status.RUNNING
 
-            msg = PoseStamped()
-            msg.header.frame_id = 'map'
-            msg.header.stamp = self.node.get_clock().now().to_msg()
-            msg.pose.position.x = safe_x
-            msg.pose.position.y = safe_y
-            msg.pose.orientation.w = 1.0
-            self.goal_pub.publish(msg)
-            
-            # Αποθηκεύουμε τα δεδομένα για να ελέγξουμε στο επόμενο βήμα αν το ρομπότ κινήθηκε
-            self.last_robot_pose = (rx, ry)
-            self.current_target_frontier = best_frontier
+        # ── Κατάσταση FIND ────────────────────────────────────────────────────
+        result = self._find_and_send_frontier(grid_map, map_info)
 
-            self.node.get_logger().info(f"🗺️ Κυνηγάω ασφαλές Σύνορο στα ({safe_x:.2f}, {safe_y:.2f})")
-            self.last_plan_time = current_time
-            return py_trees.common.Status.RUNNING
-            
-        else:
-            self.node.get_logger().info("🏆 Ο ΛΑΒΥΡΙΝΘΟΣ ΕΞΕΡΕΥΝΗΘΗΚΕ ΠΛΗΡΩΣ! Ενεργοποίηση πρωτοκόλλου επιστροφής...")
-            # self.blackboard.returning_home = True
-            return py_trees.common.Status.RUNNING
-        
-    # def inf_map_callback(self, msg):
-    #     w = msg.info.width
-    #     h = msg.info.height
-        
-    #     # Μετατρέπουμε τη μονοδιάστατη λίστα πίσω σε 2D Numpy Array για την OpenCV
-    #    # inflated_grid = np.array(msg.data, dtype=np.int8).reshape((h, w))
-        
-    #     # Το σώζουμε στο blackboard με νέο όνομα (ή αντικαθιστούμε το παλιό)
-    #     #self.blackboard.inflated_grid_map = inflated_grid
-        
-    #     # Φροντίζουμε να έχουμε και το map_info (για origin και resolution)
-    #     self.blackboard.map_info = msg.info
+        if result == 'DONE':
+            self.node.get_logger().info(
+                "🎉 [EXPLORE] Εξερεύνηση ολοκληρώθηκε! Δεν βρέθηκαν άλλα frontiers."
+            )
+            return py_trees.common.Status.SUCCESS
+
+        # result == 'SENT' — στόχος εστάλη, μεταβαίνουμε σε NAVIGATE
+        return py_trees.common.Status.RUNNING
+
+    def terminate(self, new_status: py_trees.common.Status):
+        """
+        Καλείται όταν το behaviour εξέρχεται από RUNNING (preempt ή completion).
+        Αφήνουμε τον τρέχοντα στόχο ενεργό — ο planner θα σταματήσει μόνος του.
+        """
+        self.node.get_logger().info(
+            f"[EXPLORE] Τερματισμός με status: {new_status.name} | "
+            f"Blacklisted frontiers: {len(self._blacklist)}"
+        )
+
+    # ── Frontier Detection ─────────────────────────────────────────────────────
+
+    def _detect_frontiers(self, grid_map: np.ndarray) -> np.ndarray:
+        """
+        Εντοπίζει frontier cells: ελεύθερα κελιά (==0) που γειτνιάζουν
+        με τουλάχιστον ένα άγνωστο κελί (==-1).
+
+        Επιστρέφει binary mask: uint8, 255 = frontier cell.
+        """
+        # Χρησιμοποιούμε int16 για ασφαλή σύγκριση με -1 (αποφυγή overflow σε uint8)
+        grid = grid_map.astype(np.int16)
+
+        free_mask    = (grid == 0  ).astype(np.uint8) * 255
+        unknown_mask = (grid == -1 ).astype(np.uint8) * 255
+
+        # Διαστολή του unknown χώρου → βρίσκουμε τα γειτονικά ελεύθερα κελιά
+        kernel          = np.ones((3, 3), np.uint8)
+        dilated_unknown = cv2.dilate(unknown_mask, kernel, iterations=1)
+
+        frontier_mask = cv2.bitwise_and(free_mask, dilated_unknown)
+        return frontier_mask
+
+    def _cluster_frontiers(self, frontier_mask: np.ndarray, map_info) -> list:
+        """
+        Ομαδοποιεί τα frontier pixels σε clusters (connected components).
+        Φιλτράρει μικρά clusters και blacklisted frontiers.
+
+        Επιστρέφει λίστα από dicts: {cx, cy, wx, wy, size}
+        """
+        num_labels, _, stats, centroids = cv2.connectedComponentsWithStats(
+            frontier_mask, connectivity=8
+        )
+
+        clusters = []
+        for i in range(1, num_labels):  # 0 = background
+            size = int(stats[i, cv2.CC_STAT_AREA])
+            if size < self.MIN_FRONTIER_SIZE:
+                continue
+
+            cx, cy = float(centroids[i][0]), float(centroids[i][1])
+            wx, wy = self._grid_to_world(cx, cy, map_info)
+
+            if self._is_blacklisted(wx, wy):
+                continue
+
+            clusters.append({'cx': cx, 'cy': cy, 'wx': wx, 'wy': wy, 'size': size})
+
+        return clusters
+
+    def _select_best_frontier(self, clusters: list, map_info) -> dict | None:
+        """
+        Βαθμολόγηση frontiers:
+            score = distance_in_pixels / sqrt(cluster_size)
+        Προτιμώνται μεγάλα clusters που βρίσκονται κοντά στο ρομπότ.
+        Μικρότερο score = καλύτερη επιλογή.
+        """
+        if not clusters or self.current_pose is None:
+            return None
+
+        robot_gx, robot_gy = self._world_to_grid(
+            self.current_pose.x, self.current_pose.y, map_info
+        )
+
+        best, best_score = None, float('inf')
+        for c in clusters:
+            dist  = math.hypot(c['cx'] - robot_gx, c['cy'] - robot_gy)
+            score = dist / math.sqrt(c['size'])
+            if score < best_score:
+                best_score = score
+                best = c
+
+        return best
+
+    # ── Core Logic ─────────────────────────────────────────────────────────────
+
+    def _find_and_send_frontier(self, grid_map: np.ndarray, map_info) -> str:
+        """
+        Εντοπίζει, επιλέγει και στέλνει το καλύτερο frontier goal.
+        Επιστρέφει:
+            'DONE' – κανένα frontier δεν βρέθηκε (εξερεύνηση τελείωσε)
+            'SENT' – goal εστάλη επιτυχώς
+        """
+        frontier_mask = self._detect_frontiers(grid_map)
+        clusters      = self._cluster_frontiers(frontier_mask, map_info)
+
+        if not clusters:
+            return 'DONE'
+
+        best = self._select_best_frontier(clusters, map_info)
+        if best is None:
+            return 'DONE'
+
+        # Ορισμός νέου στόχου
+        self._current_goal = (best['wx'], best['wy'])
+        self._nav_start_t  = self.node.get_clock().now().nanoseconds / 1e9
+        self.path_empty_received = False
+        self._nav_state = 'NAVIGATE'
+
+        # Δημοσίευση goal στον A* Planner
+        goal_msg = PoseStamped()
+        goal_msg.header.stamp    = self.node.get_clock().now().to_msg()
+        goal_msg.header.frame_id = 'map'
+        goal_msg.pose.position.x = best['wx']
+        goal_msg.pose.position.y = best['wy']
+        goal_msg.pose.orientation.w = 1.0
+        self.goal_pub.publish(goal_msg)
+
+        self.node.get_logger().info(
+            f"🎯 [EXPLORE] Νέο frontier: ({best['wx']:.2f}, {best['wy']:.2f}) | "
+            f"Cluster: {best['size']} px | Blacklist: {len(self._blacklist)} | "
+            f"Υπόλοιπα clusters: {len(clusters)}"
+        )
+        return 'SENT'
+
+    # ── Helper Methods ─────────────────────────────────────────────────────────
+
+    def _is_goal_reached(self) -> bool:
+        if self._current_goal is None or self.current_pose is None:
+            return False
+        dx = self._current_goal[0] - self.current_pose.x
+        dy = self._current_goal[1] - self.current_pose.y
+        return math.hypot(dx, dy) < self.GOAL_TOLERANCE_M
+
+    def _is_navigation_timed_out(self) -> bool:
+        if self._nav_start_t is None:
+            return False
+        elapsed = self.node.get_clock().now().nanoseconds / 1e9 - self._nav_start_t
+        return elapsed > self.NAV_TIMEOUT_SEC
+
+    def _is_blacklisted(self, wx: float, wy: float) -> bool:
+        for bx, by in self._blacklist:
+            if math.hypot(wx - bx, wy - by) < self.BLACKLIST_RADIUS_M:
+                return True
+        return False
+
+    def _world_to_grid(self, x: float, y: float, map_info) -> tuple[float, float]:
+        gx = (x - map_info.origin.position.x) / map_info.resolution
+        gy = (y - map_info.origin.position.y) / map_info.resolution
+        return gx, gy
+
+    def _grid_to_world(self, gx: float, gy: float, map_info) -> tuple[float, float]:
+        wx = gx * map_info.resolution + map_info.origin.position.x
+        wy = gy * map_info.resolution + map_info.origin.position.y
+        return wx, wy
+
+
+# ==========================================
+# 3. ΔΕΝΤΡΟ ΣΥΜΠΕΡΙΦΟΡΩΝ
+# ==========================================
 
 def create_root(node):
     # Κεντρική Ακολουθία: Πρώτα Spin (μια φορά) -> Μετά Αποστολές
     root = py_trees.composites.Sequence(name="Main_Mission", memory=True)
-    
-    spin_action = InitialSpinAction(name="Action: 360 Spin", node=node)
-    
-    # ΠΡΟΣΘΗΚΗ: wrapping του spin σε OneShot Decorator
+
+    spin_action  = InitialSpinAction(name="Action: 360 Spin", node=node)
     spin_oneshot = py_trees.decorators.OneShot(
         child=spin_action,
         name="OneShot_Protection",
         policy=py_trees.common.OneShotPolicy.ON_SUCCESSFUL_COMPLETION
     )
-    
+
     mission_selector = py_trees.composites.Selector(name="Mission_Priorities", memory=False)
-    
+
     unlock_sequence = py_trees.composites.Sequence(name="Unlock_Door_Priority", memory=False)
-    check_match = CheckForUnlockableDoor(name="Condition: Έχουμε κλειδί για γνωστή πόρτα;")
-    unlock_door = UnlockDoorAction(name="Action: Άνοιξε Πόρτα", node=node)
-    
+    check_match     = CheckForUnlockableDoor(name="Condition: Έχουμε κλειδί για γνωστή πόρτα;")
+    unlock_door     = UnlockDoorAction(name="Action: Άνοιξε Πόρτα", node=node)
+
     unlock_sequence.add_children([check_match, unlock_door])
+
     explore = ExploreMazeAction(name="Action: Εξερεύνηση", node=node)
-    
+
     mission_selector.add_children([unlock_sequence, explore])
-    
-    # ΠΡΟΣΘΗΚΗ: Αντί για το spin_action, βάζουμε το spin_oneshot
+
     root.add_children([spin_oneshot, mission_selector])
-    
     return root
+
+
+# ==========================================
+# 4. ΚΟΜΒΟΣ ΕΛΕΓΧΟΥ ΑΠΟΣΤΟΛΗΣ
+# ==========================================
 
 class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
-        
+
         self.aruco_sub = self.create_subscription(
-            Point, 
-            '/vision/detected_aruco', 
-            self.aruco_callback, 
-            10
+            Point, '/vision/detected_aruco', self.aruco_callback, 10
         )
         self.map_sub = self.create_subscription(
-            OccupancyGrid, '/map', self.map_callback, 10)
-        
+            OccupancyGrid, '/map', self.map_callback, 10
+        )
+
         self.marker_pub = self.create_publisher(MarkerArray, '/door_markers', 10)
-        self.cloud_pub = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
-        self.vis_timer = self.create_timer(0.5, self.publish_dynamic_obstacles)
-        
-        # ΠΡΟΣΘΗΚΗ: Δομές δεδομένων για τον υπολογισμό των πορτών
-        self.raw_door_posts = {} # Format: {door_id: [(x, y)]}
-        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες (όχι θόρυβος)
+        self.cloud_pub  = self.create_publisher(PointCloud2, '/dynamic_doors_cloud', 10)
+        self.vis_timer  = self.create_timer(0.5, self.publish_dynamic_obstacles)
+
+        self.raw_door_posts       = {}
+        self.DOOR_WIDTH_THRESHOLD = 0.2
 
         self.blackboard = py_trees.blackboard.Client(name="Master")
-        self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="keys_inventory",  access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="discovered_doors",access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="target_door",     access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="unlocked_doors",  access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="grid_map",        access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="map_info",        access=py_trees.common.Access.WRITE)
 
-        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.WRITE)
-        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
-        self.blackboard.grid_map = None
-        self.blackboard.map_info = None
-        
-        self.blackboard.keys_inventory = []
-        self.blackboard.discovered_doors = {}
-        self.blackboard.target_door = None
-        self.blackboard.unlocked_doors = []
-        
+        self.blackboard.grid_map        = None
+        self.blackboard.map_info        = None
+        self.blackboard.keys_inventory  = []
+        self.blackboard.discovered_doors= {}
+        self.blackboard.target_door     = None
+        self.blackboard.unlocked_doors  = []
+
         self.tree = py_trees.trees.BehaviourTree(create_root(self))
         self.tree.setup(timeout=15)
-        
+
         self.timer = self.create_timer(1.0, self.tick_tree)
 
     def aruco_callback(self, msg):
-        detected_id = int(msg.z) 
+        detected_id = int(msg.z)
         x = float(msg.x)
         y = float(msg.y)
-        
-        # Αν το ID είναι ΚΛΕΙΔΙ
+
         if detected_id in KEY_DOOR_MATCHES.values():
             if detected_id not in self.blackboard.keys_inventory:
                 self.get_logger().info(f"📥 [VISION] Βρήκα ΚΛΕΙΔΙ: {detected_id}")
                 self.blackboard.keys_inventory.append(detected_id)
-                
-        # Αν το ID είναι ΠΟΡΤΑ
+
         elif detected_id in KEY_DOOR_MATCHES.keys():
-            # Αγνόησε την αν την έχουμε ήδη ανοίξει ή αν έχει ήδη βρεθεί πλήρως
             if detected_id in self.blackboard.unlocked_doors or detected_id in self.blackboard.discovered_doors:
                 return
 
@@ -473,16 +529,12 @@ class MissionControlNode(Node):
                 self.raw_door_posts[detected_id] = [(x, y)]
                 self.get_logger().info(f"🔍 [VISION] Εντοπίστηκε η 1η κολώνα της ΠΟΡΤΑΣ {detected_id} στα ({x:.2f}, {y:.2f}). Ψάχνω την 2η...")
             else:
-                # Έχουμε δει ξανά αυτό το ID. Είναι η 2η κολώνα ή απλά διαβάσαμε την 1η από άλλη γωνία;
                 first_post = self.raw_door_posts[detected_id][0]
                 dist = math.hypot(x - first_post[0], y - first_post[1])
-                
-                # Αν απέχει ικανοποιητικά, τότε είναι το 2ο ArUco της πόρτας!
+
                 if dist > self.DOOR_WIDTH_THRESHOLD and len(self.raw_door_posts[detected_id]) == 1:
-                    # Υπολογισμός του μέσου (Κέντρο του Ανοίγματος)
                     mid_x = (first_post[0] + x) / 2.0
                     mid_y = (first_post[1] + y) / 2.0
-                    
                     self.blackboard.discovered_doors[detected_id] = (mid_x, mid_y)
                     self.get_logger().info(f"🎯 [VISION] Η ΠΟΡΤΑ {detected_id} ΚΛΕΙΔΩΣΕ! Κέντρο στα ({mid_x:.2f}, {mid_y:.2f}). (Άνοιγμα {dist:.2f}m)")
 
@@ -492,56 +544,58 @@ class MissionControlNode(Node):
     def publish_dynamic_obstacles(self):
         marker_array = MarkerArray()
         delete_all_marker = Marker()
-        delete_all_marker.action = Marker.DELETEALL 
+        delete_all_marker.action = Marker.DELETEALL
         marker_array.markers.append(delete_all_marker)
-        points = []
+        points   = []
         marker_id = 0
-        
+
         for door_id, (mid_x, mid_y) in self.blackboard.discovered_doors.items():
-            
-            # --- 1. Marker για το RViz (Κόκκινος Κύβος στο κέντρο) ---
             marker = Marker()
             marker.header.frame_id = "map"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.ns = "locked_doors"
-            marker.id = marker_id
-            marker.type = Marker.CUBE
-            marker.action = Marker.ADD
-            
+            marker.header.stamp    = self.get_clock().now().to_msg()
+            marker.ns      = "locked_doors"
+            marker.id      = marker_id
+            marker.type    = Marker.CUBE
+            marker.action  = Marker.ADD
+
             marker.pose.position.x = float(mid_x)
             marker.pose.position.y = float(mid_y)
-            marker.pose.position.z = 0.5 
-            
-            marker.scale.x = 0.6 # Το κάνουμε λίγο πιο πλατύ για να μπλοκάρει το πέρασμα
+            marker.pose.position.z = 0.5
+
+            marker.scale.x = 0.6
             marker.scale.y = 0.6
             marker.scale.z = 1.0
-            
-            marker.color.a = 0.8 
-            marker.color.r = 1.0 
+
+            marker.color.a = 0.8
+            marker.color.r = 1.0
             marker.color.g = 0.0
             marker.color.b = 0.0
-            
+
             marker_array.markers.append(marker)
             marker_id += 1
-            
-            # --- 2. PointCloud για τον A* Planner ---
-            points.append([float(mid_x), float(mid_y), 0.0])
-            points.append([float(mid_x) + 0.15, float(mid_y), 0.0])
-            points.append([float(mid_x) - 0.15, float(mid_y), 0.0])
-            points.append([float(mid_x), float(mid_y) + 0.15, 0.0])
-            points.append([float(mid_x), float(mid_y) - 0.15, 0.0])
+
+            points.extend([
+                [float(mid_x),        float(mid_y),        0.0],
+                [float(mid_x) + 0.15, float(mid_y),        0.0],
+                [float(mid_x) - 0.15, float(mid_y),        0.0],
+                [float(mid_x),        float(mid_y) + 0.15, 0.0],
+                [float(mid_x),        float(mid_y) - 0.15, 0.0],
+            ])
 
         self.marker_pub.publish(marker_array)
-        
-        header = Header(frame_id='map', stamp=self.get_clock().now().to_msg())
+
+        header    = Header(frame_id='map', stamp=self.get_clock().now().to_msg())
         cloud_msg = pc2.create_cloud_xyz32(header, points)
         self.cloud_pub.publish(cloud_msg)
+
     def map_callback(self, msg):
-        width = msg.info.width
+        width  = msg.info.width
         height = msg.info.height
-        self.blackboard.grid_map = np.array(msg.data).reshape((height, width))
+        # Αποθηκεύουμε ως int16 για ασφαλή χειρισμό του -1 (unknown)
+        self.blackboard.grid_map = np.array(msg.data, dtype=np.int16).reshape((height, width))
         self.blackboard.map_info = msg.info
-        
+
+
 def main(args=None):
     rclpy.init(args=args)
     node = MissionControlNode()
