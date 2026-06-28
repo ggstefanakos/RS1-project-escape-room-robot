@@ -269,7 +269,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         # 2. Φτιάξε μια "ζώνη ασφαλείας" γύρω από τους τοίχους
         # Όσο μεγαλύτερο το iterations, τόσο πιο μακριά από τον τοίχο θα "σβήνει" το frontier
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        obstacle_buffer = cv2.dilate(obstacle_mask, kernel, iterations=2) 
+        obstacle_buffer = cv2.dilate(obstacle_mask, kernel, iterations=1) 
 
         # 3. Φτιάξε το αρχικό frontier (Free <-> Unknown)
         frontier_raw = cv2.bitwise_and(reachable_mask, unknown_mask)
