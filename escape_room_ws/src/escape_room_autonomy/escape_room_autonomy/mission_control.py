@@ -341,7 +341,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         return clusters
 
-    def _select_best_frontier(self, clusters: list, map_info) -> dict | None:
+    def _select_best_frontier(self, clusters: list, map_info):
         """
         Βαθμολόγηση frontiers:
             score = distance_in_pixels / sqrt(cluster_size)
