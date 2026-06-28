@@ -179,8 +179,8 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.node.blackboard.map_info.origin.position.x
         orig_y = self.node.blackboard.map_info.origin.position.y
 
-        free_map = np.uint8(grid == 0)
-        unknown_map = np.uint8(grid == -1)
+        free_map = np.int8(grid == 0)
+        unknown_map = np.int8(grid == -1)
 
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
         free_dilated = cv2.dilate(free_map, kernel, iterations=1)
@@ -206,10 +206,10 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.node.get_logger().info(f"DEBUG: Τιμές στο grid: {unique_vals}")
 
         # Έλεγχος για το unknown (δοκίμασε και με 127 και με άλλες τιμές αν δεις στο log)
-        unknown_mask = np.uint8(grid == 127) * 255
+        unknown_mask = np.int8(grid == 127) * 255
         self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels: {np.sum(unknown_mask > 0)}")
 
-        free_map = np.uint8(grid == 0) * 255
+        free_map = np.int8(grid == 0) * 255
         self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
         self.node.get_logger().info(f"DEBUG: Το grid είναι τύπου: {grid.dtype}")
         return best_frontier
