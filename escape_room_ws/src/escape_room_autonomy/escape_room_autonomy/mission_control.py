@@ -189,10 +189,8 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         # 3. Τώρα το OpenCV θα είναι ευτυχισμένο γιατί δέχεται uint8
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
-        free_dilated = cv2.dilate(free_map, kernel, iterations=1)
-
-        # 4. Συνέχισε κανονικά με το bitwise_and
-        frontier_mask = cv2.bitwise_and(free_dilated, unknown_map)
+        # Εφαρμόζουμε το erode στο frontier_mask πριν το findContours
+        frontier_mask = cv2.erode(frontier_mask, kernel, iterations=1)
 
         contours, _ = cv2.findContours(frontier_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
@@ -200,26 +198,29 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         max_size = -1
 
         for cnt in contours:
-            size = cv2.contourArea(cnt)
-            if size > max_size and size > 50: 
-                max_size = size
+            area = cv2.contourArea(cnt)
+            if area < 50: continue # Φιλτράρισμα πολύ μικρού θορύβου
+            
+            # 2. SHAPE FACTOR (Compactness):
+            # Τύπος: (Περίμετρος^2 / Εμβαδόν). 
+            # Ένα κύκλος/τετράγωνο έχει μικρό νούμερο. Μια λεπτή "ακτίνα" έχει τεράστιο.
+            perimeter = cv2.arcLength(cnt, True)
+            if perimeter > 0:
+                compactness = (perimeter ** 2) / area
+                
+                # Αν είναι υπερβολικά "λεπτό" (π.χ. > 60), είναι ray, όχι frontier.
+                if compactness > 60: 
+                    continue 
+
+            # Αν περάσει τα φίλτρα, προχώρα στο scoring
+            if area > max_size:
+                max_size = area
                 M = cv2.moments(cnt)
                 if M["m00"] != 0:
                     cx = int(M["m10"] / M["m00"])
                     cy = int(M["m01"] / M["m00"])
                     best_frontier = ((cx * res) + orig_x, (cy * res) + orig_y)
         
-
-        unique_vals = np.unique(grid)
-        self.node.get_logger().info(f"DEBUG: Τιμές στο grid: {unique_vals}")
-
-        
-        num_unknown = np.sum(unknown_mask_bool)
-        self.node.get_logger().info(f"DEBUG: Πλήθος Unknown pixels βρέθηκαν: {num_unknown}")
-
-        free_map = np.int8(grid == 0) * 255
-        self.node.get_logger().info(f"DEBUG: Πλήθος Free pixels: {np.sum(free_map > 0)}")
-        self.node.get_logger().info(f"DEBUG: Το grid είναι τύπου: {grid.dtype}")
         return best_frontier
 
     def publish_goal(self, pose_tuple):
