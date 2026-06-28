@@ -154,7 +154,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
-        self.inf_map_sub = self.create_subscription(
+        self.inf_map_sub = self.node.create_subscription(
             OccupancyGrid, 
             '/infmap', 
             self.inf_map_callback, 
