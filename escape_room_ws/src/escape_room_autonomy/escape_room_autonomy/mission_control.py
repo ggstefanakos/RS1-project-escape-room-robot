@@ -252,12 +252,24 @@ class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
         # ... (υπάρχοντα subscriptions)
+
+        self.blackboard = py_trees.blackboard.Client(name="Master")
+        
+        # 2. ΜΕΤΑ ΚΑΝΕΙΣ REGISTER ΤΑ KEYS
+        self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
+        
+        # 3. ΠΡΟΣΘΗΚΗ ΤΟΥ ΝΕΟΥ KEY (Εδώ ήταν το λάθος αν το είχες βάλει παραπάνω)
+        self.blackboard.register_key(key="current_path", access=py_trees.common.Access.WRITE)
         
         # ΠΡΟΣΘΗΚΗ: Subscription στο /plan
         self.path_sub = self.create_subscription(Path, '/plan', self.path_callback, 10)
         
         # ΠΡΟΣΘΗΚΗ στο blackboard
-        self.blackboard.register_key(key="current_path", access=py_trees.common.Access.WRITE)
         self.blackboard.current_path = [] # Αρχικοποίηση με άδειο μονοπάτι
         
         # ... (υπόλοιπα)
@@ -265,7 +277,7 @@ class MissionControlNode(Node):
     def path_callback(self, msg):
         # Αποθήκευση του μονοπατιού στο Blackboard
         self.blackboard.current_path = msg.poses
-        
+
     def aruco_callback(self, msg):
         detected_id = int(msg.z) 
         x = float(msg.x)
