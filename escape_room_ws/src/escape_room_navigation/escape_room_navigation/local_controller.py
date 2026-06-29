@@ -132,7 +132,7 @@ class LocalPlannerPID(Node):
         # Τελική εντολή στροφής (Sum)
         cmd_w = p_term + i_term + d_term
 
-        #cmd_w = max(min(cmd_w, self.max_angular_speed), -self.max_angular_speed)
+        cmd_w = max(min(cmd_w, self.max_angular_speed), -self.max_angular_speed)
         
 
         # --- ΕΛΕΓΧΟΣ ΤΑΧΥΤΗΤΑΣ ΚΑΙ ΤΕΡΜΑΤΙΣΜΟΥ ---
