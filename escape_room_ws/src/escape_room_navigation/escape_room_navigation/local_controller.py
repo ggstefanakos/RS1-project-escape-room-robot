@@ -53,7 +53,9 @@ class LocalPlannerPID(Node):
     def path_callback(self, msg):
         if not msg.poses:
             # Αν το μονοπάτι είναι κενό, σταμάτα το ρομπότ αμέσως
-            self.stop_robot()
+            for i in range(8):
+                if i==4:
+                    self.stop_robot()
             return
         self.current_path = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
         self.target_idx = 0
