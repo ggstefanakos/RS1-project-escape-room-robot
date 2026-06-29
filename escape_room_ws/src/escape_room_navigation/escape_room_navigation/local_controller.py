@@ -34,9 +34,9 @@ class LocalPlannerPID(Node):
         self.target_idx = 0
 
         # --- ΡΥΘΜΙΣΕΙΣ ΠΛΗΡΟΥΣ PID ΚΑΙ ΟΔΗΓΗΣΗΣ ---
-        self.Kp_ang = 1.2   # P: Δύναμη στροφής προς τον στόχο
-        self.Ki_ang = 0.05  # I: Διόρθωση μικρής μόνιμης απόκλισης (π.χ. αν το ρομπότ "τραβάει" μονόπατα)
-        self.Kd_ang = 1   # D: Φρένο για να μην ταλαντώνεται (κάνει ζιγκ-ζαγκ)
+        self.Kp_ang = 1   # P: Δύναμη στροφής προς τον στόχο
+        self.Ki_ang = 0.08  # I: Διόρθωση μικρής μόνιμης απόκλισης (π.χ. αν το ρομπότ "τραβάει" μονόπατα)
+        self.Kd_ang = 0.2  # D: Φρένο για να μην ταλαντώνεται (κάνει ζιγκ-ζαγκ)
         
         # Μεταβλητές μνήμης για το PID
         self.prev_error_ang = 0.0
@@ -81,7 +81,7 @@ class LocalPlannerPID(Node):
             self.emergency_stop = True
         else:
             self.emergency_stop = False
-            
+
     def control_loop(self):
         if not self.current_path:
             return
