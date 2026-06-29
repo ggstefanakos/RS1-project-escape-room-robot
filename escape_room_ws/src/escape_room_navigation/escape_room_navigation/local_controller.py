@@ -62,23 +62,26 @@ class LocalPlannerPID(Node):
         # Βρίσκουμε πόσες συνολικά ακτίνες έστειλε το Lidar
         total_beams = len(msg.ranges)
         
-        # Φτιάχνουμε έναν "Κώνο Ασφαλείας" στη μέση της όρασης του.
-        # Απομονώνουμε το μεσαίο 30% των ακτίνων (π.χ. κόβουμε το 35% από αριστερά και το 35% από δεξιά)
-        # Αυτό αντιστοιχεί περίπου στο πλάτος του ρομπότ σας.
-        center_start = int(total_beams * 0.45)
-        center_end = int(total_beams * 0.55)
+        # ΛΟΓΩ ΠΕΡΙΣΤΡΟΦΗΣ 180 ΜΟΙΡΩΝ: Το "μπροστά" είναι στα άκρα του πίνακα.
+        # Παίρνουμε το 5% των ακτίνων από την αρχή του πίνακα (δεξιά πλευρά του μπροστά)
+        # και το 5% από το τέλος του πίνακα (αριστερή πλευρά του μπροστά).
+        cone_size = int(total_beams * 0.05)
         
-        front_cone = msg.ranges[center_start:center_end]
+        right_side_of_front = msg.ranges[0 : cone_size]
+        left_side_of_front = msg.ranges[-cone_size : ]
+        
+        # Ενώνουμε τα δύο άκρα για να φτιάξουμε τον καθαρό μπροστινό κώνο
+        front_cone = right_side_of_front + left_side_of_front
         
         # Φιλτράρουμε τον θόρυβο ΜΟΝΟ μέσα σε αυτόν τον κώνο
         valid_ranges = [r for r in front_cone if r > 0.05 and not math.isinf(r)]
         
-        # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 25 εκατοστά, τραβάμε χειρόφρενο
+        # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 20 εκατοστά, τραβάμε χειρόφρενο
         if valid_ranges and min(valid_ranges) < 0.20:
             self.emergency_stop = True
         else:
             self.emergency_stop = False
-
+            
     def control_loop(self):
         if not self.current_path:
             return

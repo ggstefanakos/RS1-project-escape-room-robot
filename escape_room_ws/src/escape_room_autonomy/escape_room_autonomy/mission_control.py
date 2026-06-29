@@ -156,14 +156,14 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self.node)
         
-        self.last_goal = None
         self.candidates = []
-        self.candidate_idx = 0
-        self.sub_candidate_idx = 0 # ΝΕΟ: Κρατάει το ποιο από τα 3 σημεία του tile δοκιμάζουμε
+        self.sub_candidate_idx = 0 
         self.goal_sent = False
+        
+        # ΝΕΟ: Μνήμη για τις γειτονιές που αποδείχθηκαν απροσπέλαστες
+        self.blacklisted_tiles = set()
 
     def get_robot_pose(self):
-        """Επιστρέφει την τρέχουσα θέση (x, y) του ρομπότ στον χάρτη"""
         try:
             t = self.tf_buffer.lookup_transform('map', 'base_link', rclpy.time.Time())
             return (t.transform.translation.x, t.transform.translation.y)
@@ -172,26 +172,19 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             return None
         
     def update(self):
-        # 1. Ανανέωση candidates αν τελείωσαν
-        if not self.candidates or self.candidate_idx >= len(self.candidates):
+        # 1. ΔΥΝΑΜΙΚΗ ΑΝΑΝΕΩΣΗ: Αν η λίστα είναι άδεια, σκανάρουμε τον ΝΕΟ χάρτη
+        if not self.candidates:
             self.candidates = self.get_frontier_candidates()
-            self.candidate_idx = 0
-            self.sub_candidate_idx = 0 # Μηδενισμός
+            self.sub_candidate_idx = 0
         
         if not self.candidates:
-            self.node.get_logger().warn("Δεν υπάρχουν άλλα tiles για εξερεύνηση!")
+            self.node.get_logger().warn("Δεν υπάρχουν άλλα frontiers. Εξερεύνηση ολοκληρώθηκε!")
             return py_trees.common.Status.FAILURE
 
-        # Πάρε τη λίστα με τα υπο-σημεία για το τρέχον tile
-        current_target_list = self.candidates[self.candidate_idx]
-        
-        # Ασφάλεια: Αν ξεπεράσαμε τα σημεία, πάμε στο επόμενο tile
-        if self.sub_candidate_idx >= len(current_target_list):
-            self.candidate_idx += 1
-            self.sub_candidate_idx = 0
-            self.goal_sent = False
-            return py_trees.common.Status.RUNNING
-
+        # Παίρνουμε ΠΑΝΤΑ το καλύτερο tile (index 0) της ανανεωμένης λίστας
+        current_tile_info = self.candidates[0] 
+        current_target_list = current_tile_info['points']
+        current_tile_id = current_tile_info['tile_id']
         current_target = current_target_list[self.sub_candidate_idx]
 
         # 2. ΕΛΕΓΧΟΣ ΑΝ ΦΤΑΣΑΜΕ ΣΤΟ GOAL
@@ -200,25 +193,24 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             dist = math.hypot(robot_pose[0] - current_target[0], robot_pose[1] - current_target[1])
             
             if dist < 0.3:
-                self.node.get_logger().info(f"📍 Φτάσαμε στο tile {self.candidate_idx+1}. Διαγραφή ολόκληρου του tile...")
-                self.candidates.pop(self.candidate_idx) 
+                self.node.get_logger().info(f"📍 Περιοχή εξερευνήθηκε! Αναγκαστική ανανέωση χάρτη...")
+                self.candidates = [] # Αδειάζουμε τη λίστα για δυναμικό recalculation
+                self.blacklisted_tiles.clear() # Καθαρίζουμε το ιστορικό λαθών γιατί αλλάξαμε οπτική!
                 self.goal_sent = False
-                self.sub_candidate_idx = 0 
                 return py_trees.common.Status.RUNNING
 
         # 3. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER
-        # (Αφαιρέθηκε το time.sleep(0.5). Τα behaviors πρέπει να επιστρέφουν ακαριαία)
         if self.goal_sent and len(self.node.blackboard.current_path) == 0:
-            self.node.get_logger().warn(f"Planner απέτυχε στο σημείο {self.sub_candidate_idx+1}/{len(current_target_list)} του tile {self.candidate_idx+1}.")
+            self.node.get_logger().warn(f"Planner απέτυχε στο σημείο {self.sub_candidate_idx+1}/{len(current_target_list)}.")
             
-            self.sub_candidate_idx += 1 # Δοκίμασε το επόμενο σημείο του ΙΔΙΟΥ tile
+            self.sub_candidate_idx += 1 
             
-            # Αν δοκιμάσαμε όλα τα σημεία του tile και απέτυχαν
+            # Αν δοκιμάσαμε όλα τα σημεία της γειτονιάς
             if self.sub_candidate_idx >= len(current_target_list):
-                self.node.get_logger().warn(f"Εξαντλήθηκαν οι επιλογές για το tile {self.candidate_idx+1}. Απόρριψη γειτονιάς...")
-                self.candidate_idx += 1
-                self.sub_candidate_idx = 0
-                
+                self.node.get_logger().warn(f"🚫 Η γειτονιά είναι εντελώς απροσπέλαστη. Blacklisted!")
+                self.blacklisted_tiles.add(current_tile_id) # Την κλειδώνουμε
+                self.candidates = [] # Αναγκαστική ανανέωση για να βρει άλλη περιοχή
+            
             self.goal_sent = False
             return py_trees.common.Status.RUNNING
 
@@ -226,7 +218,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         if not self.goal_sent:
             self.publish_goal(current_target)
             self.goal_sent = True
-            self.node.get_logger().info(f"Αποστολή στόχου στο tile {self.candidate_idx+1} (Σημείο δοκιμής: {self.sub_candidate_idx+1})")
+            self.node.get_logger().info(f"🚀 Στόχος σε νέα γειτονιά (Σημείο δοκιμής: {self.sub_candidate_idx+1}/{len(current_target_list)})")
             
         return py_trees.common.Status.RUNNING
 
@@ -242,6 +234,12 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         candidates = []
         for y in range(0, h - tile_size, tile_size):
             for x in range(0, w - tile_size, tile_size):
+                tile_id = (x, y)
+                
+                # ΝΕΟ: Αν το tile έχει αποτύχει στο παρελθόν, το προσπερνάμε ακαριαία
+                if tile_id in self.blacklisted_tiles:
+                    continue
+                    
                 tile = grid[y:y+tile_size, x:x+tile_size]
                 tile_arr = np.array(tile, dtype=np.int8)
                 
@@ -251,7 +249,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                 if unknown_count > 0 and free_count > 0:
                     free_indices = np.argwhere(tile_arr == 0)
                     
-                    # ΝΕΑ ΛΟΓΙΚΗ: Διαλέγουμε μέχρι 3 σημεία "απλωμένα" μέσα στο ελεύθερο χώρο του tile
+                    # Μέχρι 3 σημεία διάσπαρτα στον ελεύθερο χώρο του tile
                     num_points = min(3, len(free_indices))
                     step = max(1, len(free_indices) // num_points)
                     
@@ -262,14 +260,21 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                         real_y = (y + fy) * res + orig_y
                         sub_targets.append((real_x, real_y))
                     
-                    # Αποθηκεύουμε τα σημεία και το score για να ταξινομήσουμε μετά
-                    candidates.append({'points': sub_targets, 'score': unknown_count})
+                    # Αποθηκεύουμε τα σημεία, το ID για το Blacklist και το Score
+                    candidates.append({'points': sub_targets, 'tile_id': tile_id, 'score': unknown_count})
                     
-        # Ταξινόμηση βάσει άγνωστων pixels (μεγαλύτερο frontier = υψηλότερη προτεραιότητα)
+        # Ταξινόμηση βάσει άγνωστων pixels
         candidates.sort(key=lambda k: k['score'], reverse=True)
-        
-        # Επιστρέφουμε λίστα από λίστες (κάθε στοιχείο είναι μια λίστα με τα 3 σημεία του tile)
-        return [c['points'] for c in candidates]
+        return candidates
+
+    def publish_goal(self, pose_tuple):
+        goal_msg = PoseStamped()
+        goal_msg.header.frame_id = 'map'
+        goal_msg.header.stamp = self.node.get_clock().now().to_msg()
+        goal_msg.pose.position.x = pose_tuple[0]
+        goal_msg.pose.position.y = pose_tuple[1]
+        goal_msg.pose.orientation.w = 1.0
+        self.goal_pub.publish(goal_msg)
 
     def publish_goal(self, pose_tuple):
         goal_msg = PoseStamped()
