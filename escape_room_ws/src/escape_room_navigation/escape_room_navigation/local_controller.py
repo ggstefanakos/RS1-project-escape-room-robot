@@ -65,8 +65,8 @@ class LocalPlannerPID(Node):
         # Φτιάχνουμε έναν "Κώνο Ασφαλείας" στη μέση της όρασης του.
         # Απομονώνουμε το μεσαίο 30% των ακτίνων (π.χ. κόβουμε το 35% από αριστερά και το 35% από δεξιά)
         # Αυτό αντιστοιχεί περίπου στο πλάτος του ρομπότ σας.
-        center_start = int(total_beams * 0.35)
-        center_end = int(total_beams * 0.65)
+        center_start = int(total_beams * 0.45)
+        center_end = int(total_beams * 0.55)
         
         front_cone = msg.ranges[center_start:center_end]
         
