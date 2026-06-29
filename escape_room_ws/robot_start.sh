@@ -63,3 +63,6 @@ ros2 launch escape_room_bringup robot_brain.launch.py;
 exec bash"
 
 echo "✅ Τα τερματικά άνοιξαν στο παρασκήνιο!"
+
+# Kill robot speed
+# ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'
