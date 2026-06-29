@@ -250,7 +250,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                     free_indices = np.argwhere(tile_arr == 0)
                     
                     # Μέχρι 3 σημεία διάσπαρτα στον ελεύθερο χώρο του tile
-                    num_points = min(3, len(free_indices))
+                    num_points = min(5, len(free_indices))
                     step = max(1, len(free_indices) // num_points)
                     
                     sub_targets = []
