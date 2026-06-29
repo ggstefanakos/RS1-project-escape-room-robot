@@ -74,7 +74,7 @@ class LocalPlannerPID(Node):
         valid_ranges = [r for r in front_cone if r > 0.05 and not math.isinf(r)]
         
         # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 25 εκατοστά, τραβάμε χειρόφρενο
-        if valid_ranges and min(valid_ranges) < 0.15:
+        if valid_ranges and min(valid_ranges) < 0.20:
             self.emergency_stop = True
         else:
             self.emergency_stop = False

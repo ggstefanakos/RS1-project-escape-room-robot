@@ -222,7 +222,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         orig_x = self.node.blackboard.map_info.origin.position.x
         orig_y = self.node.blackboard.map_info.origin.position.y
         h, w = grid.shape
-        tile_size = 10 
+        tile_size = 20
         candidates = []
         for y in range(0, h - tile_size, tile_size):
             for x in range(0, w - tile_size, tile_size):
