@@ -65,7 +65,7 @@ class LocalPlannerPID(Node):
         stop_msg = Twist()
         stop_msg.linear.x = 0.0
         stop_msg.angular.z = 0.0
-        self.cmd_vel_pub.publish(stop_msg)
+        self.cmd_pub.publish(stop_msg)
         self.get_logger().info("Planner αποτυχία: Σταμάτημα ρομπότ.")
 
     def scan_callback(self, msg):
