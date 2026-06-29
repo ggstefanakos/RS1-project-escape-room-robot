@@ -145,6 +145,7 @@ class LocalPlannerPID(Node):
         if self.emergency_stop:
             self.get_logger().warn("🛑 ΕΜΠΟΔΙΟ! Φρενάρισμα έκτακτης ανάγκης!")
             cmd_v = 0.0
+            cmd_w=0.0
             self.publish_path([])
             #Δεν πειράζουμε το cmd_w! Το ρομπότ πρέπει να μπορεί να στρίψει στο νέο plan!
 
