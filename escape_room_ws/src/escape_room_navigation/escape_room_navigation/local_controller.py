@@ -93,6 +93,7 @@ class LocalPlannerPID(Node):
 
     def control_loop(self):
         if not self.current_path:
+            self.stop_robot()
             return
 
         try:
