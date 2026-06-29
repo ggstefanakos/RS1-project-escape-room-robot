@@ -86,10 +86,17 @@ def generate_launch_description():
             output='screen'
         ),
 
-         Node(
+        Node(
             package='escape_room_navigation',
             executable='ekf_map',
             name='ekf_lidar_slam_node',
+            output='screen'
+        ),
+
+        Node(
+            package='escape_room_autonomy',
+            executable='mission_control_node',
+            name='mission_control',
             output='screen'
         )
     ])
