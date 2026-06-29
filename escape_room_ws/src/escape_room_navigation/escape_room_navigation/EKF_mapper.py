@@ -232,7 +232,7 @@ class EkfLidarSlam(Node):
                     hit_canvas[hy_px, hx_px] = 255
             current_angle += msg.angle_increment
 
-        # Η Μαγεία του Log-Odds: Τα ελεύθερα πεδία χάνουν 2%, τα εμπόδια κερδίζουν 10%
+        # Τα ελεύθερα πεδία χάνουν 2%, τα εμπόδια κερδίζουν 10%
         self.prob_map[rays_canvas == 255] -= 3.0
         self.prob_map[hit_canvas == 255] += 9.0
         np.clip(self.prob_map, 0.0, 100.0, out=self.prob_map)
