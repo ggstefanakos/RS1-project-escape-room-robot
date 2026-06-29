@@ -196,6 +196,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
 
         # 3. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER
         # Αν έχουμε στείλει goal και το path είναι κενό, το tile είναι απροσπέλαστο
+        time.sleep(0.5)
         if self.goal_sent and len(self.node.blackboard.current_path) == 0:
             self.node.get_logger().warn(f"Planner απέτυχε στο tile {self.candidate_idx}. Πάω στο επόμενο...")
             self.candidate_idx += 1 # Δοκίμασε το επόμενο tile της λίστας
