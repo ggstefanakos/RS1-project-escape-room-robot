@@ -174,81 +174,55 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
             return None
         
     def update(self):
+        # 1. Αναγέννηση λίστας αν είναι κενή
         if not self.candidates:
             self.candidates = self.get_frontier_candidates()
             self.sub_candidate_idx = 0
+            self.goal_sent = False
         
         if not self.candidates:
-            self.node.get_logger().warn("Δεν υπάρχουν άλλα frontiers. Εξερεύνηση ολοκληρώθηκε!")
             return py_trees.common.Status.FAILURE
 
         current_tile_info = self.candidates[0] 
-        current_target_list = current_tile_info['points']
-        current_tile_id = current_tile_info['tile_id']
-        current_target = current_target_list[self.sub_candidate_idx]
+        current_target = current_tile_info['points'][self.sub_candidate_idx]
 
-        # 1. ΕΛΕΓΧΟΣ ΑΝ ΦΤΑΣΑΜΕ ΣΤΟ GOAL
-        robot_pose = self.get_robot_pose()
-        if robot_pose and self.goal_sent:
-            dist = math.hypot(robot_pose[0] - current_target[0], robot_pose[1] - current_target[1])
-            
-            if dist < 0.20:
-                self.node.get_logger().info(f"📍 Περιοχή εξερευνήθηκε! Αναγκαστική ανανέωση χάρτη...")
-                self.candidates = [] 
-                self.blacklisted_tiles.clear() 
-                
-                # Καθαρισμός και reset των σημαιών
-                self.goal_sent = False
-                self.path_valid_once = False
-                
-                stop_msg = Twist()
-                stop_msg.linear.x = 0.0
-                stop_msg.angular.z = 0.0
-                self.node.create_publisher(Twist, '/cmd_vel', 10).publish(stop_msg)
-                
-                return py_trees.common.Status.RUNNING
+        # 2. ΕΛΕΓΧΟΣ ΤΕΛΟΥΣ ΠΟΡΕΙΑΣ
+        # Αν έχουμε στείλει στόχο ΚΑΙ το path έγινε κενό (το καθάρισε ο Local Controller)
+        # Τότε θεωρούμε ότι φτάσαμε με επιτυχία!
+        if self.goal_sent and len(self.node.blackboard.current_path) == 0 and self.path_valid_once:
+            self.node.get_logger().info(f"📍 Περιοχή εξερευνήθηκε (Path empty)! Αναγκαστική ανανέωση...")
+            self.candidates = [] 
+            self.blacklisted_tiles.clear() 
+            self.goal_sent = False
+            self.path_valid_once = False
+            return py_trees.common.Status.RUNNING
 
-        # 2. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER 
+        # 3. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER
         if self.goal_sent:
-            # Περιμένουμε τον Planner να υπολογίσει
             if not self.node.blackboard.path_received:
                 return py_trees.common.Status.RUNNING
 
-            # Αν ΔΕΝ έχουμε βρει ακόμα έγκυρο path για αυτόν τον στόχο
             if not self.path_valid_once:
                 if len(self.node.blackboard.current_path) == 0:
-                    self.node.get_logger().warn(f"Planner απέτυχε στο σημείο {self.sub_candidate_idx+1}/{len(current_target_list)}.")
-                    
+                    # Ο planner δεν βρήκε διαδρομή, δοκίμασε επόμενο σημείο στο tile
                     self.sub_candidate_idx += 1 
-                    
-                    # Αν δοκιμάσαμε όλα τα σημεία της γειτονιάς
-                    if self.sub_candidate_idx >= len(current_target_list):
-                        self.node.get_logger().warn(f"🚫 Η γειτονιά είναι εντελώς απροσπέλαστη. Blacklisted!")
-                        self.blacklisted_tiles.add(current_tile_id) 
+                    if self.sub_candidate_idx >= len(current_tile_info['points']):
+                        self.blacklisted_tiles.add(current_tile_info['tile_id'])
                         self.candidates = [] 
-                    
                     self.goal_sent = False
                     return py_trees.common.Status.RUNNING
                 else:
-                    # Βρέθηκε έγκυρο path! Το κλειδώνουμε
-                    self.node.get_logger().info("✅ Βρέθηκε έγκυρο Path! Το κλειδώνουμε και αγνοούμε τον θόρυβο.")
                     self.path_valid_once = True
                     return py_trees.common.Status.RUNNING
-            else:
-                # Το path_valid_once είναι True. Το ρομπότ ταξιδεύει.
-                # Αγνοούμε εντελώς τα άδεια paths (len == 0) από τον A* μέχρι να φτάσει.
-                pass
 
-        # 3. ΑΠΟΣΤΟΛΗ ΣΤΟΧΟΥ
+        # 4. ΑΠΟΣΤΟΛΗ ΣΤΟΧΟΥ
         if not self.goal_sent:
-            # Επαναφορά όλων των σημαιών ΠΡΙΝ στείλουμε νέο στόχο
             self.node.blackboard.path_received = False
             self.node.blackboard.current_path = []
             self.path_valid_once = False
-            
             self.publish_goal(current_target)
             self.goal_sent = True
-            self.node.get_logger().info(f"🚀 Στόχος σε νέα γειτονιά (Σημείο δοκιμής: {self.sub_candidate_idx+1}/{len(current_target_list)})")
+            self.node.get_logger().info(f"🚀 Στόχος σε νέα γειτονιά.")
             
         return py_trees.common.Status.RUNNING
 
