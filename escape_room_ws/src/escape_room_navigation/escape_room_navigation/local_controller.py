@@ -51,12 +51,22 @@ class LocalPlannerPID(Node):
         self.get_logger().info("Full PID Local Controller initialized! Waiting for /plan...")
 
     def path_callback(self, msg):
+        if not msg.poses:
+            # Αν το μονοπάτι είναι κενό, σταμάτα το ρομπότ αμέσως
+            self.stop_robot()
+            return
         self.current_path = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
         self.target_idx = 0
         # Κάθε φορά που έχουμε νέο μονοπάτι, μηδενίζουμε τη μνήμη του PID
         self.integral_error_ang = 0.0
         self.prev_error_ang = 0.0
         self.get_logger().info(f"Received new path with {len(self.current_path)} waypoints.")
+    def stop_robot(self):
+        stop_msg = Twist()
+        stop_msg.linear.x = 0.0
+        stop_msg.angular.z = 0.0
+        self.cmd_vel_pub.publish(stop_msg)
+        self.get_logger().info("Planner αποτυχία: Σταμάτημα ρομπότ.")
 
     def scan_callback(self, msg):
         # Βρίσκουμε πόσες συνολικά ακτίνες έστειλε το Lidar
