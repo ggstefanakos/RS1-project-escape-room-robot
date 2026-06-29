@@ -58,7 +58,16 @@ ros2 run v4l2_camera v4l2_camera_node --ros-args -p video_device:=/dev/video0
 5. Launch file
 ```bash
 source /opt/ros/galactic/setup.bash
-source ~/Desktop/Projects/TeamA06/RS1-project-escape-room-robot/escape_room_ws/install/setup.bash
+source myPath/RS1-project-escape-room-robot/escape_room_ws/install/setup.bash
 export ROS_DOMAIN_ID=43
 ros2 launch escape_room_bringup robot_brain.launch.py
 ```
+
+## Οπτικοποίηση (Rviz2)
+
+```bash
+export ROS_DOMAIN_ID=43
+rviz2
+```
+
+Το configuration file είναι `/myPath/RS1-project-escape-room-robot/escape_room_ws/src/myagv_plus_description/rviz/myagv_plus_display.rviz`
