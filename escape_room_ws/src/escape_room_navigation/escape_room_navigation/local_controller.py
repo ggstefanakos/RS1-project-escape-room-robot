@@ -55,7 +55,7 @@ class LocalPlannerPID(Node):
             # Αν το μονοπάτι είναι κενό, σταμάτα το ρομπότ αμέσως
             current_time = self.get_clock().now().nanoseconds / 1e9
             elapsed_time = current_time - self.start_time
-            if elapsed_time < 15.0:
+            if elapsed_time > 15.0:
                 self.stop_robot()
             return
         self.current_path = [(pose.pose.position.x, pose.pose.position.y) for pose in msg.poses]
