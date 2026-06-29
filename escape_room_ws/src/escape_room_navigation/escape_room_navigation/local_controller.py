@@ -44,7 +44,7 @@ class LocalPlannerPID(Node):
         self.max_integral = 2.0 # ANTI-WINDUP: Δεν αφήνουμε το ολοκλήρωμα να ξεφύγει!
 
         self.max_linear_speed = 0.05 # m/s
-        self.max_angular_speed = 0.5
+        self.max_angular_speed = 0.1
         self.lookahead_distance = 0.3 # Πόσο μπροστά στο μονοπάτι κοιτάει
 
         self.timer = self.create_timer(0.1, self.control_loop)
@@ -132,10 +132,16 @@ class LocalPlannerPID(Node):
         # Τελική εντολή στροφής (Sum)
         cmd_w = p_term + i_term + d_term
 
-        cmd_w = max(min(cmd_w, self.max_angular_speed), -self.max_angular_speed)
+        #cmd_w = max(min(cmd_w, self.max_angular_speed), -self.max_angular_speed)
+        
 
         # --- ΕΛΕΓΧΟΣ ΤΑΧΥΤΗΤΑΣ ΚΑΙ ΤΕΡΜΑΤΙΣΜΟΥ ---
         cmd_v = self.max_linear_speed * max(0.0, (1.0 - abs(error_ang)/(math.pi/2)))
+
+        if abs(error_ang) > 0.78:
+            cmd_v = self.max_linear_speed * 0.3 # Πήγαινε αργά ενώ στρίβεις
+        else:
+            cmd_v = self.max_linear_speed # Πήγαινε κανονικά
 
         final_x, final_y = self.current_path[-1]
         if math.hypot(final_x - rx, final_y - ry) < 0.3:
