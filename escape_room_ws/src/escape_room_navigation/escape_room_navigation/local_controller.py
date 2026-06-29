@@ -147,6 +147,7 @@ class LocalPlannerPID(Node):
         if math.hypot(final_x - rx, final_y - ry) < 0.3:
             self.get_logger().info("Target Reached!")
             self.current_path = []
+            self.publish_path([])
             cmd_v = 0.0
             cmd_w = 0.0
         
