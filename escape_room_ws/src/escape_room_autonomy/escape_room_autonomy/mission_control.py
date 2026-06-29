@@ -192,10 +192,17 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         if robot_pose and self.goal_sent:
             dist = math.hypot(robot_pose[0] - current_target[0], robot_pose[1] - current_target[1])
             
-            if dist < 0.3:
+            if dist < 0.2:
                 self.node.get_logger().info(f"📍 Περιοχή εξερευνήθηκε! Αναγκαστική ανανέωση χάρτη...")
                 self.candidates = [] # Αδειάζουμε τη λίστα για δυναμικό recalculation
                 self.blacklisted_tiles.clear() # Καθαρίζουμε το ιστορικό λαθών γιατί αλλάξαμε οπτική!
+                # Φρένο - επίσης καθαρό
+                stop_msg = Twist()
+                # Τα float είναι από default 0.0, αλλά για σιγουριά:
+                stop_msg.linear.x = 0.0
+                stop_msg.angular.z = 0.0
+            
+                self.cmd_pub.publish(stop_msg)
                 self.goal_sent = False
                 return py_trees.common.Status.RUNNING
 

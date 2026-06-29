@@ -48,16 +48,20 @@ class AStarPlanner(Node):
         height = msg.info.height
         
         grid = np.array(msg.data).reshape((height, width))
-       # Δημιουργία χάρτη εμποδίων (Εμπόδιο γίνεται ο τοίχος (>60) Ή το άγνωστο (-1))
+        
+        # 1. Βήμα Πρώτο: Φουσκώνουμε ΜΟΝΟ τα πραγματικά εμπόδια (τοίχους)
         obstacle_map = np.zeros_like(grid, dtype=np.uint8)
-        obstacle_map[(grid > 60) | (grid == -1)] = 255
+        obstacle_map[grid > 60] = 255
         
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (self.inflation_radius_pixels*2, self.inflation_radius_pixels*2))
         inflated_map = cv2.dilate(obstacle_map, kernel, iterations=1)
         
+        # 2. Βήμα Δεύτερο: Κάνουμε το άγνωστο (-1) εμπόδιο (255), ΑΛΛΑ ΧΩΡΙΣ ΝΑ ΤΟ ΦΟΥΣΚΩΣΟΥΜΕ
+        inflated_map[grid == -1] = 255
+        
         self.grid_map = inflated_map
         self.publish_inflated_map(self.grid_map, msg.info)
-        self.get_logger().info("Map received and inflated!")
+        self.get_logger().info("Map received and strictly inflated!")
         self.try_plan()
 
     def goal_callback(self, msg):
