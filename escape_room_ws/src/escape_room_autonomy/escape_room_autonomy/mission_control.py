@@ -236,18 +236,32 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
     def get_frontier_candidates(self):
         grid = self.node.blackboard.grid_map
         if grid is None: return []
+        
+        # Λήψη της τρέχουσας θέσης του ρομπότ (απαραίτητο για τον υπολογισμό βαρύτητας)
+        robot_pose = self.get_robot_pose()
+        if not robot_pose:
+            self.node.get_logger().warn("Αδυναμία λήψης TF για VPF. Επιστροφή άδειας λίστας.")
+            return []
+            
+        rx, ry = robot_pose
+        
         res = self.node.blackboard.map_info.resolution
         orig_x = self.node.blackboard.map_info.origin.position.x
         orig_y = self.node.blackboard.map_info.origin.position.y
         h, w = grid.shape
         tile_size = 20
         
+        # --- ΠΑΡΑΜΕΤΡΟΙ POTENTIAL FIELD ---
+        ALPHA = 1.5           # Συντελεστής βαρύτητας. >1 τιμωρεί αυστηρά τις μεγάλες αποστάσεις.
+        REPULSION_WEIGHT = 2.0 # Βάρος απωστικής δύναμης. Πόσο "φοβάται" το ρομπότ τα εμπόδια.
+        # ----------------------------------
+        
         candidates = []
         for y in range(0, h - tile_size, tile_size):
             for x in range(0, w - tile_size, tile_size):
                 tile_id = (x, y)
                 
-                # ΝΕΟ: Αν το tile έχει αποτύχει στο παρελθόν, το προσπερνάμε ακαριαία
+                # Προσπέραση απροσπέλαστων περιοχών
                 if tile_id in self.blacklisted_tiles:
                     continue
                     
@@ -257,11 +271,43 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                 unknown_count = np.sum(tile_arr == -1)
                 free_count = np.sum(tile_arr == 0)
                 
+                # Μετράμε τα pixels εμποδίων (υποθέτουμε ότι το 100 σημαίνει τοίχος)
+                obstacle_count = np.sum(tile_arr == 100)
+                
                 if unknown_count > 0 and free_count > 0:
                     free_indices = np.argwhere(tile_arr == 0)
                     
-                    # Μέχρι 3 σημεία διάσπαρτα στον ελεύθερο χώρο του tile
-                    num_points = min(5, len(free_indices))
+                    # Υπολογισμός Κέντρου "Μάζας" του ελεύθερου χώρου στο tile
+                    mean_fy = np.mean(free_indices[:, 0])
+                    mean_fx = np.mean(free_indices[:, 1])
+                    
+                    target_x = (x + mean_fx) * res + orig_x
+                    target_y = (y + mean_fy) * res + orig_y
+                    
+                    # ==========================================
+                    # YΠΟΛΟΓΙΣΜΟΣ VIRTUAL POTENTIAL FIELD SCORING
+                    # ==========================================
+                    
+                    # 1. Απόσταση D (με όριο ασφαλείας για να μην διαιρέσουμε με μηδέν)
+                    dist = math.hypot(target_x - rx, target_y - ry)
+                    dist = max(dist, 0.1) 
+                    
+                    # 2. Ελκτική Δύναμη: Μάζα (unknown) / Απόσταση^Alpha
+                    f_attraction = unknown_count / (dist ** ALPHA)
+                    
+                    # 3. Απωστική Δύναμη: Εμπόδια * Βάρος
+                    f_repulsion = obstacle_count * REPULSION_WEIGHT
+                    
+                    # 4. Net Score
+                    net_score = f_attraction - f_repulsion
+                    
+                    # Αν η περιοχή είναι εντελώς τοξική (αρνητικό σκορ λόγω τοίχων), την αγνοούμε
+                    if net_score <= 0:
+                        continue
+                    # ==========================================
+                    
+                    # Επιλογή 3 σημείων δοκιμής (από την προηγούμενη λογική)
+                    num_points = min(3, len(free_indices))
                     step = max(1, len(free_indices) // num_points)
                     
                     sub_targets = []
@@ -271,13 +317,17 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                         real_y = (y + fy) * res + orig_y
                         sub_targets.append((real_x, real_y))
                     
-                    # Αποθηκεύουμε τα σημεία, το ID για το Blacklist και το Score
-                    candidates.append({'points': sub_targets, 'tile_id': tile_id, 'score': unknown_count})
+                    # Αποθηκεύουμε το tile χρησιμοποιώντας το VPF Net Score!
+                    candidates.append({
+                        'points': sub_targets, 
+                        'tile_id': tile_id, 
+                        'score': net_score
+                    })
                     
-        # Ταξινόμηση βάσει άγνωστων pixels
+        # Ταξινόμηση βάσει Καθαρού Φορτίου (φθίνουσα σειρά)
         candidates.sort(key=lambda k: k['score'], reverse=True)
         return candidates
-
+    
     def publish_goal(self, pose_tuple):
         goal_msg = PoseStamped()
         goal_msg.header.frame_id = 'map'
