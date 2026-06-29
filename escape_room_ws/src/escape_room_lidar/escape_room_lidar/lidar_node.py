@@ -5,15 +5,12 @@ from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header
 import math
-
-# --- ΝΕΟ IMPORT ΓΙΑ ΤΟ QoS ---
 from rclpy.qos import qos_profile_sensor_data 
 
 class LidarToCartesianNode(Node):
     def __init__(self):
         super().__init__('lidar_to_cartesian_node')
         
-        # --- ΑΛΛΑΓΗ ΕΔΩ: Χρησιμοποιούμε το qos_profile_sensor_data ---
         self.subscription = self.create_subscription(
             LaserScan,
             '/scan',
@@ -24,7 +21,6 @@ class LidarToCartesianNode(Node):
         self.get_logger().info('Lidar to Cartesian Node started. Waiting for /scan data...')
 
     def scan_callback(self, msg):
-        # Βάζουμε ένα print για να επιβεβαιώσουμε ότι παίρνει δεδομένα!
         self.get_logger().info('Received Scan!', once=True) 
         
         points = []

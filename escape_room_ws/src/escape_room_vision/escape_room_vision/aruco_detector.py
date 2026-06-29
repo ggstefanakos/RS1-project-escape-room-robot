@@ -24,11 +24,6 @@ class ArucoDetectorNode(Node):
             self.image_callback,
             10)
             
-        # self.marker_publisher = self.create_publisher(
-        #     Marker,
-        #     '/marker',
-        #     10)
-        # ΝΕΟΣ Publisher για το Mission Control
         self.mission_publisher = self.create_publisher(
             Point,
             '/vision/detected_aruco',
@@ -45,7 +40,6 @@ class ArucoDetectorNode(Node):
             self.aruco_params = cv2.aruco.DetectorParameters()
 
         # --- Παράμετροι Κάμερας (DUMMY για την Web Camera) ---
-        # ΠΡΟΣΟΧΗ: Αυτά θα πρέπει να αλλάξουν με τα πραγματικά του ρομπότ αργότερα!
         self.camera_matrix = np.array([
             [500.0, 0.0, 320.0],
             [0.0, 500.0, 240.0],
@@ -88,15 +82,14 @@ class ArucoDetectorNode(Node):
             self.get_logger().error(f"Image conversion failed: {e}")
             return
 
-        # --- ΟΙ ΑΛΛΑΓΕΣ ΣΟΥ ΞΕΚΙΝΑΝΕ ΕΔΩ ---
 
-        # 2. Ρίχνουμε την ανάλυση στο 640x480 (μειώνει τα pixel κατά 70% αν είχες 1080p)
+        # 2. Ρίχνουμε την ανάλυση στο 640x480
         cv_image = cv2.resize(cv_image, (640, 480), interpolation=cv2.INTER_LINEAR)
 
-        # 3. Φτιάχνουμε ένα ασπρόμαυρο αντίγραφο (διώχνουμε τα 3 κανάλια RGB, κρατάμε 1)
+        # 3. Φτιάχνουμε ένα ασπρόμαυρο αντίγραφο
         gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
 
-        # 4. Ταΐζουμε το ΑΣΠΡΟΜΑΥΡΟ frame στον ArUco detector (όχι το cv_image)
+        # 4. Ταΐζουμε το ΑΣΠΡΟΜΑΥΡΟ frame στον ArUco detector
         corners, ids, rejected = cv2.aruco.detectMarkers(gray_image, self.aruco_dict, parameters=self.aruco_params)
 
 
@@ -120,7 +113,7 @@ class ArucoDetectorNode(Node):
             # --- Δημιουργία και Εκπομπή TF (Transform) ---
             t = TransformStamped()
             t.header.stamp = self.get_clock().now().to_msg()
-            t.header.frame_id = "camera_link"  # Το όνομα του frame της κάμεράς μας
+            t.header.frame_id = "camera_link"  
             t.child_frame_id = f"aruco_marker_{ids[0][0]}"
 
             # CAST σε float για να μην παραπονεθεί το ROS2 για numpy types
@@ -135,34 +128,6 @@ class ArucoDetectorNode(Node):
 
             self.tf_broadcaster.sendTransform(t)
 
-            # # --- Δημιουργία και Εκπομπή Marker για το RViz2 ---
-            # marker = Marker()
-            # marker.header.stamp = t.header.stamp
-            # marker.header.frame_id = "camera_link"
-            # marker.ns = "aruco_board"
-            # marker.id = int(ids[0][0])
-            # marker.type = Marker.CUBE
-            # marker.action = Marker.ADD
-
-            # marker.pose.position.x = float(self.filtered_tvec[0])
-            # marker.pose.position.y = float(self.filtered_tvec[1])
-            # marker.pose.position.z = float(self.filtered_tvec[2])
-
-            # marker.pose.orientation.x = float(self.filtered_q[0])
-            # marker.pose.orientation.y = float(self.filtered_q[1])
-            # marker.pose.orientation.z = float(self.filtered_q[2])
-            # marker.pose.orientation.w = float(self.filtered_q[3])
-            
-            # marker.scale.x = float(self.marker_length)
-            # marker.scale.y = float(self.marker_length)
-            # marker.scale.z = 0.01  # Κάνουμε τον κύβο "πλακέ" σαν χαρτόνι
-
-            # marker.color.r = 0.0
-            # marker.color.g = 1.0  # Πράσινο χρώμα για να φαίνεται
-            # marker.color.b = 0.0
-            # marker.color.a = 0.8
-
-            # self.marker_publisher.publish(marker)
 
             mission_msg = Point()
             # Στέλνουμε τις συντεταγμένες (x, z της κάμερας -> x, y του ρομπότ)

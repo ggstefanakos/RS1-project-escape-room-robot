@@ -11,6 +11,7 @@ import math
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import OccupancyGrid
 import numpy as np
+from nav_msgs.msg import Path
 import cv2
 from visualization_msgs.msg import Marker, MarkerArray
 from sensor_msgs.msg import PointCloud2
@@ -61,7 +62,6 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
         else:
             # Φρένο - επίσης καθαρό
             stop_msg = Twist()
-            # Τα float είναι από default 0.0, αλλά για σιγουριά:
             stop_msg.linear.x = 0.0
             stop_msg.angular.z = 0.0
             
@@ -103,7 +103,6 @@ class UnlockDoorAction(py_trees.behaviour.Behaviour):
         self.blackboard.register_key(key="target_door", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="keys_inventory", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="discovered_doors", access=py_trees.common.Access.WRITE)
-        # ΠΡΟΣΘΗΚΗ: Μνήμη για τις πόρτες που ανοίξαμε
         self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
 
     def initialise(self):
@@ -160,9 +159,7 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
         self.sub_candidate_idx = 0 
         self.goal_sent = False
         
-        # Μνήμη για να μην εγκαταλείπει το path με το πρώτο σφάλμα
         self.path_valid_once = False
-        # Μνήμη για τις γειτονιές που αποδείχθηκαν απροσπέλαστες
         self.blacklisted_tiles = set()
 
     def get_robot_pose(self):
@@ -305,13 +302,11 @@ def create_root(node):
     
     return root
 
-# Πρόσθεσε το import για το Path αν λείπει
-from nav_msgs.msg import Path
+
 
 class MissionControlNode(Node):
     def __init__(self):
         super().__init__('mission_control_node')
-        # ... (υπάρχοντα subscriptions)
 
         self.blackboard = py_trees.blackboard.Client(name="Master")
         
@@ -325,7 +320,7 @@ class MissionControlNode(Node):
         self.blackboard.register_key(key="path_received", access=py_trees.common.Access.WRITE)
         self.blackboard.path_received = False
         
-        # 3. ΠΡΟΣΘΗΚΗ ΤΟΥ ΝΕΟΥ KEY (Εδώ ήταν το λάθος αν το είχες βάλει παραπάνω)
+        # 3. ΠΡΟΣΘΗΚΗ ΤΟΥ ΝΕΟΥ KEY
         self.blackboard.register_key(key="current_path", access=py_trees.common.Access.WRITE)
         
         # ΠΡΟΣΘΗΚΗ: Subscription στο /plan
@@ -334,7 +329,6 @@ class MissionControlNode(Node):
         # ΠΡΟΣΘΗΚΗ στο blackboard
         self.blackboard.current_path = [] # Αρχικοποίηση με άδειο μονοπάτι
         
-        # ... (υπόλοιπα)
         self.aruco_sub = self.create_subscription(
             Point, 
             '/vision/detected_aruco', 
@@ -351,7 +345,7 @@ class MissionControlNode(Node):
         
         # ΠΡΟΣΘΗΚΗ: Δομές δεδομένων για τον υπολογισμό των πορτών
         self.raw_door_posts = {} # Format: {door_id: [(x, y)]}
-        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες (όχι θόρυβος)
+        self.DOOR_WIDTH_THRESHOLD = 0.2 # Η ελάχιστη απόσταση σε μέτρα ανάμεσα στα 2 ίδια ArUco για να θεωρηθούν ξεχωριστές κολώνες
 
         self.blackboard.grid_map = None
         self.blackboard.map_info = None
@@ -393,11 +387,11 @@ class MissionControlNode(Node):
                 self.raw_door_posts[detected_id] = [(x, y)]
                 self.get_logger().info(f"🔍 [VISION] Εντοπίστηκε η 1η κολώνα της ΠΟΡΤΑΣ {detected_id} στα ({x:.2f}, {y:.2f}). Ψάχνω την 2η...")
             else:
-                # Έχουμε δει ξανά αυτό το ID. Είναι η 2η κολώνα ή απλά διαβάσαμε την 1η από άλλη γωνία;
+                # Έχουμε δει ξανά αυτό το ID. Είναι η 2η κολώνα ή απλά διαβάσαμε την 1η από άλλη γωνία
                 first_post = self.raw_door_posts[detected_id][0]
                 dist = math.hypot(x - first_post[0], y - first_post[1])
                 
-                # Αν απέχει ικανοποιητικά, τότε είναι το 2ο ArUco της πόρτας!
+                # Αν απέχει ικανοποιητικά, τότε είναι το 2ο ArUco της πόρτας
                 if dist > self.DOOR_WIDTH_THRESHOLD and len(self.raw_door_posts[detected_id]) == 1:
                     # Υπολογισμός του μέσου (Κέντρο του Ανοίγματος)
                     mid_x = (first_post[0] + x) / 2.0

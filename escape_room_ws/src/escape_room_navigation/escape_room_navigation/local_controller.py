@@ -34,14 +34,14 @@ class LocalPlannerPID(Node):
         self.target_idx = 0
 
         # --- ΡΥΘΜΙΣΕΙΣ ΠΛΗΡΟΥΣ PID ΚΑΙ ΟΔΗΓΗΣΗΣ ---
-        self.Kp_ang = 1   # P: Δύναμη στροφής προς τον στόχο
-        self.Ki_ang = 0.1  # I: Διόρθωση μικρής μόνιμης απόκλισης (π.χ. αν το ρομπότ "τραβάει" μονόπατα)
-        self.Kd_ang = 0.01  # D: Φρένο για να μην ταλαντώνεται (κάνει ζιγκ-ζαγκ)
+        self.Kp_ang = 1    # P
+        self.Ki_ang = 0.1  # I
+        self.Kd_ang = 0.01 # D
         
         # Μεταβλητές μνήμης για το PID
         self.prev_error_ang = 0.0
         self.integral_error_ang = 0.0
-        self.max_integral = 2.0 # ANTI-WINDUP: Δεν αφήνουμε το ολοκλήρωμα να ξεφύγει!
+        self.max_integral = 2.0 
 
         self.max_linear_speed = 0.05 # m/s
         self.max_angular_speed = 0.1
@@ -76,7 +76,6 @@ class LocalPlannerPID(Node):
         # Φιλτράρουμε τον θόρυβο ΜΟΝΟ μέσα σε αυτόν τον κώνο
         valid_ranges = [r for r in front_cone if r > 0.05 and not math.isinf(r)]
         
-        # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 20 εκατοστά, τραβάμε χειρόφρενο
         if valid_ranges and min(valid_ranges) < 0.20:
             self.emergency_stop = True
         else:

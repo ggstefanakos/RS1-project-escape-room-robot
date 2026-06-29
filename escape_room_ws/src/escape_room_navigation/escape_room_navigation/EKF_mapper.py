@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from nav_msgs.msg import Odometry, OccupancyGrid
-from geometry_msgs.msg import TransformStamped, PoseStamped # <-- Προσθήκη PoseStamped
+from geometry_msgs.msg import TransformStamped, PoseStamped 
 from std_srvs.srv import Empty 
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy
 from tf2_ros.transform_broadcaster import TransformBroadcaster
@@ -40,7 +40,7 @@ class EkfLidarSlam(Node):
         self.origin_x = -self.width_m / 2.0
         self.origin_y = -self.height_m / 2.0
 
-        # === ΝΕΟ: ΠΙΝΑΚΑΣ ΠΙΘΑΝΟΤΗΤΩΝ (0.0 έως 100.0) ===
+        # === ΠΙΝΑΚΑΣ ΠΙΘΑΝΟΤΗΤΩΝ (0.0 έως 100.0) ===
         # 50.0 σημαίνει "Άγνωστο"
         self.prob_map = np.full((self.height_px, self.width_px), 50.0, dtype=np.float32)
 
@@ -48,7 +48,7 @@ class EkfLidarSlam(Node):
         self.odom_sub = self.create_subscription(Odometry, '/odom', self.odom_callback, 10)
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_profile_sensor_data)
         
-        # === ΝΕΟ: Publisher για την εκτιμώμενη θέση ===
+        # ===Publisher για την εκτιμώμενη θέση ===
         self.pos_pub = self.create_publisher(PoseStamped, '/est_pos', 10)
 
         map_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -68,7 +68,7 @@ class EkfLidarSlam(Node):
         q[0] = 0.0; q[1] = 0.0; q[2] = math.sin(yaw/2.0); q[3] = math.cos(yaw/2.0)
         return q
 
-    # === ΝΕΟ: Χρήση του round() για αποφυγή του 1-pixel jitter ===
+    # === Χρήση του round() για αποφυγή του 1-pixel jitter ===
     def world_to_grid(self, x, y):
         px = int(round((x - self.origin_x) / self.resolution))
         py = int(round((y - self.origin_y) / self.resolution))
@@ -128,7 +128,6 @@ class EkfLidarSlam(Node):
         self.odom_y = curr_odom_y
         self.odom_yaw = curr_imu_yaw
 
-        # === ΑΛΛΑΓΗ: Αφαιρέθηκε η εκπομπή του odom -> base_footprint από εδώ ===
 
     def reset_slam_callback(self, request, response):
         """Εκτελεί ακαριαίο reset της θέσης του EKF και καθαρισμό του χάρτη"""
@@ -184,7 +183,7 @@ class EkfLidarSlam(Node):
             y_min = max(0, ry_px - search_radius)
             y_max = min(self.height_px, ry_px + search_radius)
             
-            # === ΝΕΟ: Εξαγωγή του ROI από τον πίνακα πιθανοτήτων ===
+            # === Εξαγωγή του ROI από τον πίνακα πιθανοτήτων ===
             global_roi_prob = self.prob_map[y_min:y_max, x_min:x_max]
             global_roi = np.full(global_roi_prob.shape, 127, dtype=np.uint8)
             global_roi[global_roi_prob < 40.0] = 0
@@ -213,7 +212,7 @@ class EkfLidarSlam(Node):
                     self.X = self.X + K @ y_res       
                     self.P = (np.eye(3) - K @ H) @ self.P 
 
-        # === ΝΕΟ: PROBABILISTIC MAPPING ===
+        # === PROBABILISTIC MAPPING ===
         rx_f, ry_f, ryaw_f = self.X[0, 0], self.X[1, 0], self.X[2, 0]
         rx_f_px, ry_f_px = self.world_to_grid(rx_f, ry_f)
 
@@ -243,7 +242,7 @@ class EkfLidarSlam(Node):
     def broadcast_tf(self):
         now = self.get_clock().now().to_msg()
         
-        # === ΑΛΛΑΓΗ 1: Εκπομπή Direct TF από 'map' σε 'base_footprint' ===
+        # === Εκπομπή Direct TF από 'map' σε 'base_footprint' ===
         t = TransformStamped()
         t.header.stamp = now
         t.header.frame_id = 'map'
@@ -261,7 +260,7 @@ class EkfLidarSlam(Node):
         
         self.tf_broadcaster.sendTransform(t)
 
-        # === ΑΛΛΑΓΗ 2: Δημοσίευση της θέσης στο topic /est_pos ===
+        # === Δημοσίευση της θέσης στο topic /est_pos ===
         pose_msg = PoseStamped()
         pose_msg.header.stamp = now
         pose_msg.header.frame_id = 'map'

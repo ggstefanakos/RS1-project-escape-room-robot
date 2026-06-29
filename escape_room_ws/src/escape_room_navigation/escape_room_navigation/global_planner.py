@@ -20,16 +20,16 @@ class AStarPlanner(Node):
 
         self.inf_map_pub = self.create_publisher(OccupancyGrid, '/infmap', 10)
         
-        # ΑΛΛΑΓΗ: Αντικατάσταση του TF Listener με Subscriber στο /est_pos
+        # Αντικατάσταση του TF Listener με Subscriber στο /est_pos
         self.pos_sub = self.create_subscription(PoseStamped, '/est_pos', self.pos_callback, 10)
-        # ΑΛΛΑΓΗ: Ακούμε το Mission Control για τις κλειδωμένες πόρτες (Εικονικά εμπόδια)
+        # Ακούμε το Mission Control για τις κλειδωμένες πόρτες (Εικονικά εμπόδια)
         self.door_sub = self.create_subscription(PointCloud2, '/dynamic_doors_cloud', self.door_callback, 10)
         
-        # 2. Publisher (Το μονοπάτι)
+    
         self.path_pub = self.create_publisher(Path, '/plan', 10)
 
 
-        # Προσθήκη Timer που τρέχει τον Planner συνεχώς κάθε 1 δευτερόλεπτο
+        # Προσθήκη Timer που τρέχει τον Planner συνεχώς κάθε 1 δευτερο
         self.replanning_timer = self.create_timer(2.0, self.try_plan)
         
         # Εσωτερικές μεταβλητές
@@ -83,7 +83,7 @@ class AStarPlanner(Node):
             if 0 <= idx[0] < self.grid_map.shape[1] and 0 <= idx[1] < self.grid_map.shape[0]:
                 self.grid_map[idx[1], idx[0]] = 255
 
-    # ΑΛΛΑΓΗ: Callback για την ανανέωση της θέσης του ρομπότ από το EKF SLAM
+    #Callback για την ανανέωση της θέσης του ρομπότ από το EKF SLAM
     def pos_callback(self, msg):
         self.current_pose = msg.pose.position
 
@@ -110,7 +110,7 @@ class AStarPlanner(Node):
         if self.grid_map is None or self.goal_pose is None:
             return
 
-        # ΑΛΛΑΓΗ: Έλεγχος αν έχουμε λάβει έστω και μία φορά τη θέση από το /est_pos
+        #Έλεγχος αν έχουμε λάβει έστω και μία φορά τη θέση από το /est_pos
         if self.current_pose is None:
             self.get_logger().warn("Waiting for a valid robot position from /est_pos...")
             return
@@ -127,7 +127,7 @@ class AStarPlanner(Node):
         if dist_to_goal < 0.15:
             self.get_logger().info("🏁 Στόχος επετεύχθη!")
             self.goal_pose = None
-            self.publish_path([]) # Στέλνουμε άδειο μονοπάτι για να σταματήσει ο local controller
+            self.publish_path([]) # Στέλνουμε άδειο μονοπάτι
             return
 
         # Έλεγχος αν τα όρια του grid map είναι σωστά για αποφυγή IndexError
@@ -141,16 +141,6 @@ class AStarPlanner(Node):
             self.goal_pose = None
             return
 
-        # Έλεγχος αν το start ή το goal είναι μέσα σε τοίχο
-        # if self.grid_map[start_idx[1], start_idx[0]] == 255:
-        #     self.get_logger().error("Robot is currently inside an obstacle! Cannot plan.")
-        #     self.goal_pose = None
-        #     return
-        # if self.grid_map[goal_idx[1], goal_idx[0]] == 255:
-        #     self.get_logger().error("Goal position is inside an obstacle!")
-        #     self.goal_pose = None
-        #     return
-
         self.get_logger().info(f"Planning from ({robot_x:.2f}, {robot_y:.2f}) to ({self.goal_pose.x:.2f}, {self.goal_pose.y:.2f})...")
         
         # Εκτέλεση A*
@@ -162,9 +152,7 @@ class AStarPlanner(Node):
         else:
             self.get_logger().error("❌ A* could not find a valid path.")
             self.publish_path([])
-            
-        # Καθαρισμός του goal για να περιμένει νέα εντολή
-        ##self.goal_pose = None
+    
 
     def a_star(self, start, goal):
         neighbors = [(0,1),(0,-1),(1,0),(-1,0), (1,1),(-1,1),(1,-1),(-1,-1)] 
