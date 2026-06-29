@@ -22,6 +22,7 @@ class LocalPlannerPID(Node):
         
         self.path_sub = self.create_subscription(Path, '/plan', self.path_callback, 10)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.path_pub = self.create_publisher(Path, '/plan', 10)
 
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
         self.emergency_stop = False
@@ -73,7 +74,7 @@ class LocalPlannerPID(Node):
         valid_ranges = [r for r in front_cone if r > 0.05 and not math.isinf(r)]
         
         # Αν κάποιο αντικείμενο ΑΚΡΙΒΩΣ ΜΠΡΟΣΤΑ είναι κάτω από 25 εκατοστά, τραβάμε χειρόφρενο
-        if valid_ranges and min(valid_ranges) < 0.25:
+        if valid_ranges and min(valid_ranges) < 0.1:
             self.emergency_stop = True
         else:
             self.emergency_stop = False
@@ -143,13 +144,29 @@ class LocalPlannerPID(Node):
         # --- ΕΛΕΓΧΟΣ ΑΣΦΑΛΕΙΑΣ ---
         if self.emergency_stop:
             self.get_logger().warn("🛑 ΕΜΠΟΔΙΟ! Φρενάρισμα έκτακτης ανάγκης!")
-            #cmd_v = 0.0 
-            # Δεν πειράζουμε το cmd_w! Το ρομπότ πρέπει να μπορεί να στρίψει στο νέο plan!
+            cmd_v = 0.0
+            self.publish_path([])
+            #Δεν πειράζουμε το cmd_w! Το ρομπότ πρέπει να μπορεί να στρίψει στο νέο plan!
 
         twist = Twist()
         twist.linear.x = float(cmd_v)
         twist.angular.z = float(cmd_w)
         self.cmd_pub.publish(twist)
+
+    def publish_path(self, path_indices):
+        msg = Path()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        
+        for idx in path_indices:
+            pose = PoseStamped()
+            pose.header = msg.header
+            world_x, world_y = self.grid_to_world(idx[0], idx[1])
+            pose.pose.position.x = world_x
+            pose.pose.position.y = world_y
+            msg.poses.append(pose)
+            
+        self.path_pub.publish(msg)
 
 def main(args=None):
     rclpy.init(args=args)

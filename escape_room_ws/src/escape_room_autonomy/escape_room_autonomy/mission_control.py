@@ -54,7 +54,7 @@ class InitialSpinAction(py_trees.behaviour.Behaviour):
             msg.linear.z = 0.0
             msg.angular.x = 0.0
             msg.angular.y = 0.0
-            msg.angular.z = 0.09
+            msg.angular.z = 0.01
             
             self.cmd_pub.publish(msg)
             return py_trees.common.Status.RUNNING
