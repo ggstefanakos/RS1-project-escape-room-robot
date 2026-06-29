@@ -96,7 +96,10 @@ class LocalPlannerPID(Node):
 
     def control_loop(self):
         if not self.current_path:
-            self.stop_robot()
+            current_time = self.get_clock().now().nanoseconds / 1e9
+            elapsed_time = current_time - self.start_time
+            if elapsed_time > 15.0:
+                self.stop_robot()
             return
 
         try:
