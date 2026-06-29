@@ -138,7 +138,7 @@ class LocalPlannerPID(Node):
         cmd_v = self.max_linear_speed * max(0.0, (1.0 - abs(error_ang)/(math.pi/2)))
 
         final_x, final_y = self.current_path[-1]
-        if math.hypot(final_x - rx, final_y - ry) < 3:
+        if math.hypot(final_x - rx, final_y - ry) < 0.3:
             self.get_logger().info("Target Reached!")
             self.current_path = []
             cmd_v = 0.0
