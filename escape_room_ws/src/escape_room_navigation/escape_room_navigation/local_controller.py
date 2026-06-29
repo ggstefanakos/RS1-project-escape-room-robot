@@ -33,16 +33,16 @@ class LocalPlannerPID(Node):
         self.target_idx = 0
 
         # --- ΡΥΘΜΙΣΕΙΣ ΠΛΗΡΟΥΣ PID ΚΑΙ ΟΔΗΓΗΣΗΣ ---
-        self.Kp_ang = 1.5   # P: Δύναμη στροφής προς τον στόχο
+        self.Kp_ang = 1.2   # P: Δύναμη στροφής προς τον στόχο
         self.Ki_ang = 0.05  # I: Διόρθωση μικρής μόνιμης απόκλισης (π.χ. αν το ρομπότ "τραβάει" μονόπατα)
-        self.Kd_ang = 0.7   # D: Φρένο για να μην ταλαντώνεται (κάνει ζιγκ-ζαγκ)
+        self.Kd_ang = 1   # D: Φρένο για να μην ταλαντώνεται (κάνει ζιγκ-ζαγκ)
         
         # Μεταβλητές μνήμης για το PID
         self.prev_error_ang = 0.0
         self.integral_error_ang = 0.0
         self.max_integral = 2.0 # ANTI-WINDUP: Δεν αφήνουμε το ολοκλήρωμα να ξεφύγει!
 
-        self.max_linear_speed = 0.20  # m/s
+        self.max_linear_speed = 0.05 # m/s
         self.lookahead_distance = 0.3 # Πόσο μπροστά στο μονοπάτι κοιτάει
 
         self.timer = self.create_timer(0.1, self.control_loop)
