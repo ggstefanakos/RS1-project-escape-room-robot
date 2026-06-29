@@ -154,6 +154,7 @@ class LocalPlannerPID(Node):
 
         twist = Twist()
         twist.linear.x = float(cmd_v)
+        self.get_logger().warn(f"angular speed={cmd_w}")
         twist.angular.z = float(cmd_w)
         self.cmd_pub.publish(twist)
 
