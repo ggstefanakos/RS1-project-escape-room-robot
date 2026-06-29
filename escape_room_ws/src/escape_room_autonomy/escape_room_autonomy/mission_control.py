@@ -200,22 +200,33 @@ class ExploreMazeAction(py_trees.behaviour.Behaviour):
                 return py_trees.common.Status.RUNNING
 
         # 3. ΕΛΕΓΧΟΣ ΑΠΟΤΥΧΙΑΣ PLANNER
-        if self.goal_sent and len(self.node.blackboard.current_path) == 0:
-            self.node.get_logger().warn(f"Planner απέτυχε στο σημείο {self.sub_candidate_idx+1}/{len(current_target_list)}.")
-            
-            self.sub_candidate_idx += 1 
-            
-            # Αν δοκιμάσαμε όλα τα σημεία της γειτονιάς
-            if self.sub_candidate_idx >= len(current_target_list):
-                self.node.get_logger().warn(f"🚫 Η γειτονιά είναι εντελώς απροσπέλαστη. Blacklisted!")
-                self.blacklisted_tiles.add(current_tile_id) # Την κλειδώνουμε
-                self.candidates = [] # Αναγκαστική ανανέωση για να βρει άλλη περιοχή
-            
-            self.goal_sent = False
-            return py_trees.common.Status.RUNNING
+        if self.goal_sent:
+            # Περιμένουμε τον Planner να υπολογίσει! 
+            # Αν δεν έχει έρθει ακόμα απάντηση, δεν κάνουμε τίποτα.
+            if not self.node.blackboard.path_received:
+                return py_trees.common.Status.RUNNING
+
+            # Αν ΗΡΘΕ απάντηση και είναι άδεια, σημαίνει πραγματική αποτυχία
+            if len(self.node.blackboard.current_path) == 0:
+                self.node.get_logger().warn(f"Planner απέτυχε στο σημείο {self.sub_candidate_idx+1}/{len(current_target_list)}.")
+                
+                self.sub_candidate_idx += 1 
+                
+                # Αν δοκιμάσαμε όλα τα σημεία της γειτονιάς
+                if self.sub_candidate_idx >= len(current_target_list):
+                    self.node.get_logger().warn(f"🚫 Η γειτονιά είναι εντελώς απροσπέλαστη. Blacklisted!")
+                    self.blacklisted_tiles.add(current_tile_id) 
+                    self.candidates = [] 
+                
+                self.goal_sent = False
+                return py_trees.common.Status.RUNNING
 
         # 4. ΑΠΟΣΤΟΛΗ ΣΤΟΧΟΥ
         if not self.goal_sent:
+            # ΠΡΙΝ στείλουμε νέο στόχο, σβήνουμε το παλιό path και κατεβάζουμε το σημαιάκι
+            self.node.blackboard.path_received = False
+            self.node.blackboard.current_path = []
+            
             self.publish_goal(current_target)
             self.goal_sent = True
             self.node.get_logger().info(f"🚀 Στόχος σε νέα γειτονιά (Σημείο δοκιμής: {self.sub_candidate_idx+1}/{len(current_target_list)})")
@@ -331,6 +342,8 @@ class MissionControlNode(Node):
         self.blackboard.register_key(key="unlocked_doors", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="grid_map", access=py_trees.common.Access.WRITE)
         self.blackboard.register_key(key="map_info", access=py_trees.common.Access.WRITE)
+        self.blackboard.register_key(key="path_received", access=py_trees.common.Access.WRITE)
+        self.blackboard.path_received = False
         
         # 3. ΠΡΟΣΘΗΚΗ ΤΟΥ ΝΕΟΥ KEY (Εδώ ήταν το λάθος αν το είχες βάλει παραπάνω)
         self.blackboard.register_key(key="current_path", access=py_trees.common.Access.WRITE)
@@ -376,6 +389,8 @@ class MissionControlNode(Node):
     def path_callback(self, msg):
         # Αποθήκευση του μονοπατιού στο Blackboard
         self.blackboard.current_path = msg.poses
+        # Ανάβουμε το "πράσινο φως" ότι ο planner απάντησε!
+        self.blackboard.path_received = True
 
     def aruco_callback(self, msg):
         detected_id = int(msg.z) 
