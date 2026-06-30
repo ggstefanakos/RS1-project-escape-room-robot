@@ -21,7 +21,7 @@ class LocalPlannerPID(Node):
         super().__init__('local_planner_node')
         self.start_time = self.get_clock().now().nanoseconds / 1e9
         self.path_sub = self.create_subscription(Path, '/plan', self.path_callback, 10)
-        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 2)
         self.path_pub = self.create_publisher(Path, '/plan', 10)
 
         self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, 10)
